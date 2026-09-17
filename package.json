@@ -1,0 +1,22 @@
+{
+  "name": "agent-switchboard",
+  "version": "0.1.0",
+  "description": "A local MCP server for communication between running Codex and Claude Code sessions.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Chris Chabot",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrischabot/agent-switchboard.git"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "os": ["darwin"],
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test switchboard.test.mjs",
+    "check": "node --check server.mjs && node --check switchboard.mjs && node --check mcp-client.mjs && node --check switchboard.test.mjs"
+  },
+  "files": ["server.mjs", "switchboard.mjs", "mcp-client.mjs", "README.md", "LICENSE", "docs"]
+}
