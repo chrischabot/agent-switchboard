@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import fs from 'node:fs/promises';
@@ -8,6 +8,18 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { frame, CodexIPC, roots, claudeSend, claudePeerBody } from './switchboard.mjs';
 import { call, executorContext } from './server.mjs';
+
+let fixtureRoot;
+const originalRoots = { ...roots };
+before(async () => {
+  fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'switchboard-state-'));
+  roots.codex = path.join(fixtureRoot, 'codex');
+  roots.claude = path.join(fixtureRoot, 'claude');
+});
+after(async () => {
+  Object.assign(roots, originalRoots);
+  if (fixtureRoot) await fs.rm(fixtureRoot, { recursive: true });
+});
 
 test('frames UTF-8 byte length, not character length', () => {
   const result = frame({ text: 'hello £' });

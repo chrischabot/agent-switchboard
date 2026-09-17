@@ -157,6 +157,7 @@ export async function codexList({ limit } = {}) {
 }
 
 export async function codexOwner({ sessionId }) {
+  id(sessionId);
   return await withIPC(async (ipc) => ({ sessionId, owner: await ipc.owner(sessionId), live: true }));
 }
 
