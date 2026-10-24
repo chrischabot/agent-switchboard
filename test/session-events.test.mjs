@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, appendFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, appendFile, writeFile, rename, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { once, EventEmitter } from 'node:events';
@@ -141,6 +142,34 @@ test('real JSONL append notifications keep partial lines uncommitted and resume 
   await close();
   close = await watchJsonLines(file, 'codex', { cursor, onEvent: observe, onError: () => assert.fail('Native source failed') });
   assert.equal(received.length, 1);
+});
+
+test('external appends and appends after atomic log replacement remain observable', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'switchboard-external-tail-'));
+  const file = path.join(directory, 'native.jsonl'), replacement = path.join(directory, 'replacement.jsonl');
+  await writeFile(file, '');
+  const signal = new EventEmitter(), received = [];
+  const close = await watchJsonLines(file, 'codex', { onEvent: events => {
+    received.push(...events);
+    for (const event of events) if (event.turnId) signal.emit(event.turnId);
+  }, onError: () => assert.fail('Native source failed') });
+  t.after(async () => { await close(); await rm(directory, { recursive: true }); });
+  const append = turn => {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e',
+      'import {appendFileSync} from "node:fs";appendFileSync(process.argv[1],process.argv[2]);', file,
+      JSON.stringify({type:'event_msg',payload:{type:'task_complete',turn_id:turn}}) + '\n']);
+    assert.equal(result.status, 0);
+  };
+  const first = once(signal, 'external-one', { signal: AbortSignal.timeout(3000) });
+  append('external-one'); await first;
+  const replaced = once(signal, 'replacement-two', { signal: AbortSignal.timeout(3000) });
+  await writeFile(replacement, JSON.stringify({type:'event_msg',payload:{type:'task_complete',turn_id:'replacement-two'}}) + '\n');
+  await rename(replacement, file); await replaced;
+  const third = once(signal, 'external-three', { signal: AbortSignal.timeout(3000) });
+  append('external-three'); await third;
+  assert.deepEqual(received.filter(e => e.name === 'session.turn.ended').map(e => e.turnId),
+    ['external-one', 'replacement-two', 'external-three']);
+  assert.equal(received.filter(e => e.name === 'session.source.gap').length, 1);
 });
 
 test('Maestro ongoing completion-check summaries do not end a turn; exact terminal footer state does', () => {

@@ -8,7 +8,17 @@ import { normalizeSessionEvent } from './session-events.mjs';
 export async function watchJsonLines(filename, provider, { cursor, onEvent, onError }) {
   let info = await stat(filename), offset = cursor?.offset ?? info.size;
   let identity = `${info.dev}:${info.ino}`, state = cursor?.state ?? {};
-  let closed = false, reading = false, pending = false;
+  let closed = false, reading = false, pending = false, fileWatcher;
+  const sourceError = () => {
+    if (!closed) { closed = true; watcher.close(); fileWatcher?.close(); onError(); }
+  };
+  function watchFile() {
+    fileWatcher?.close();
+    // On macOS a directory watch does not reliably report appends made by
+    // another process. Watch the exact inode too; the directory covers rename.
+    fileWatcher = watch(filename, { persistent: false }, () => void drain());
+    fileWatcher.on('error', sourceError);
+  }
   if (cursor && (cursor.identity !== identity || offset > info.size)) {
     offset = 0; state = {};
     onEvent([{ name: 'session.source.gap', sourceId: `replacement:${identity}`, scope: 'source' }]);
@@ -22,6 +32,7 @@ export async function watchJsonLines(filename, provider, { cursor, onEvent, onEr
         pending = false; info = await stat(filename);
         const current = `${info.dev}:${info.ino}`;
         if (current !== identity || info.size < offset) {
+          if (current !== identity) watchFile();
           identity = current; offset = 0; state = {};
           onEvent([{ name: 'session.source.gap', sourceId: `replacement:${identity}:${info.size}`, scope: 'source' }]);
         }
@@ -45,15 +56,16 @@ export async function watchJsonLines(filename, provider, { cursor, onEvent, onEr
           } else if (bytesRead >= 1024 * 1024) throw new Error('Native event line exceeded the 1 MiB observation bound.');
         } finally { await handle.close(); }
       } while (pending && !closed);
-    } catch { if (!closed) { closed = true; watcher.close(); onError(); } }
+    } catch { sourceError(); }
     finally { reading = false; }
   }
   const watcher = watch(path.dirname(filename), { persistent: false }, (_event, name) => {
     if (!name || String(name) === path.basename(filename)) void drain();
   });
-  watcher.on('error', () => { if (!closed) { closed = true; watcher.close(); onError(); } });
+  watcher.on('error', sourceError);
+  try { watchFile(); } catch (error) { watcher.close(); throw error; }
   // Persist the initial tail before returning. Existing messages are not new events.
   onEvent([], { identity, offset, state: structuredClone(state) });
   void drain();
-  return async () => { closed = true; watcher.close(); };
+  return async () => { closed = true; watcher.close(); fileWatcher?.close(); };
 }
