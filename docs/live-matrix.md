@@ -106,6 +106,26 @@ acknowledgment preserves a running native read until the read completes. It
 renames the test fixture to its test name and starts no inference. Reports
 remain under the ignored evidence directory.
 
+## Native Fabric Tasks and event-wait protocol
+
+After the running Tutti catalog includes `thread_list` and `thread_events_wait`,
+run the Fabric proof with an exact owned fixture registry:
+
+```sh
+node test/live/fabric-protocol-proof.mjs UNIQUE_STABLE_RUN_KEY \
+  evidence/live/fabric-protocol-fixture.json
+```
+
+The registry uses the `fabric` shape below and must identify a manual test
+project. The proof checks immediate passive reads, bounded native thread
+listing, an event-stream cursor, native Task completion, cancellation of an
+already completed Task, and its private resource representation. Its only
+write submits the project's existing brief goal with a stable native
+idempotency key. It starts no model turn or project work. A separate live
+session journey must establish actual event production and agent notification.
+The proof preserves its Task identity before waiting and refuses to overwrite
+an existing report. Inspect an unresolved native operation before retrying.
+
 ## Fixture registry
 
 The existing private `evidence/live/fixtures.json` contains the dedicated Codex
