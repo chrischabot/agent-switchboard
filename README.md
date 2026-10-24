@@ -17,6 +17,8 @@ MCP Tasks, resource subscriptions, human elicitation relay and MCP Events
 webhooks. Live acceptance is in progress. A registered connection, a dispatch
 receipt and completed agent work are different claims. See the
 [live matrix](docs/live-matrix.md) and [implementation record](docs/implementation-plan.md).
+The [protocol compatibility notes](docs/protocols.md) distinguish webhook
+receipt, resource invalidation, Tasks and native agent wakeup.
 
 | Provider | Normalized surface | Material limits |
 | --- | --- | --- |

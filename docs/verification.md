@@ -38,14 +38,26 @@ Additional live evidence establishes the following:
   the real queued, dispatching and succeeded operation events. The test reports
   three distinct event identities and zero invalid requests. This proves
   webhook receipt, not a host's ability to wake a model from that webhook.
+- Real MCP exchanges verify hub Tasks creation and result retrieval, preservation
+  of a completed result after cancellation acknowledgment, and resource
+  invalidation over a modern subscription stream. Maestro's native Tasks also
+  complete a watch call. Its cancellation acknowledgment preserves the running
+  read until that read actually completes.
+- A fresh Codex connection relays a real Maestro elicitation. The client returns
+  `decline`; Maestro receives that disposition and leaves its native question
+  unanswered. The positive human-acceptance path remains unverified in the app.
+- Disposable Maestro session and project fixtures exercise creation, rename or
+  update, archive, restore, deletion preview and deletion. Session start, steer,
+  stop and resume calls are also exercised. Native receipts and terminal state
+  evidence remain distinct; a stop receipt alone does not establish termination.
 - The read-only bearer harness passes 41 probes with zero failures or blocked
   probes. It retains 50 unsupported and 320 unrun cells rather than treating
   discovery as full functional acceptance.
 
-Full acceptance remains in progress. Lifecycle mutations, native client
-elicitation, resource notification journeys and the Fabric release must be
-completed separately. Fabric's native event-wait tool is implemented and
-pushed; its deployment remains subject to the full gateway release gate.
+Full acceptance remains in progress. The remaining provider lifecycle journeys,
+positive human elicitation, host webhook wakeup and the Fabric release require
+separate evidence. Fabric's native event-wait tool is implemented and pushed;
+its deployment remains subject to the full gateway release gate.
 
 ## Live desktop acceptance
 

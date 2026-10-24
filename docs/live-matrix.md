@@ -91,6 +91,21 @@ that configuration after the test. Never use another application's default
 tunnel configuration. A public delivery proof does not establish client model
 wakeup.
 
+## Live Tasks and resource notifications
+
+Run the protocol proof against the configured hub and Maestro broker:
+
+```sh
+node test/live/protocol-proof.mjs UNIQUE_STABLE_RUN_KEY
+```
+
+This test uses the exact owned Maestro fixture. It verifies a real resource
+invalidation, hub task creation and result retrieval, and native Maestro task
+completion. It also verifies the provider's cancellation semantics: an
+acknowledgment preserves a running native read until the read completes. It
+renames the test fixture to its test name and starts no inference. Reports
+remain under the ignored evidence directory.
+
 ## Fixture registry
 
 The existing private `evidence/live/fixtures.json` contains the dedicated Codex
