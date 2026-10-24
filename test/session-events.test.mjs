@@ -183,8 +183,8 @@ test('Maestro ongoing completion-check summaries do not end a turn; exact termin
   assert.ok(normalizeSessionEvent('maestro', failed, '3').some(e => e.name === 'session.error' && e.scope === 'turn'));
 });
 
-test('native Codex PascalCase reasoning items stay outside visible-block subscriptions', () => {
-  for (const type of ['Reasoning', 'reasoning', 'EncryptedReasoning', 'encryptedReasoning'])
+test('native Codex reasoning and incoming messages stay outside output-block subscriptions', () => {
+  for (const type of ['Reasoning', 'reasoning', 'EncryptedReasoning', 'encryptedReasoning', 'UserMessage', 'user_message', 'userMessage'])
     assert.deepEqual(normalizeSessionEvent('codex', { type: 'event_msg', payload: {
       type: 'item_completed', turn_id: 'native-turn', item: { id: 'private-item', type },
     } }, '1'), []);

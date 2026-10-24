@@ -61,6 +61,10 @@ Additional live evidence establishes the following:
   same-thread messaging. Native history confirms an interrupted turn followed
   by a completed continuation with the expected acknowledgment. This does not
   declare a separate Codex `resume` or session-creation adapter capability.
+- An existing Codex fixture accepts active-turn steering and completes with the
+  expected acknowledgment. A deliberate failed command produces a block-scoped
+  error; the same turn later ends normally. Incoming user messages and reasoning
+  items are excluded from output-block subscriptions.
 - The read-only bearer harness passes 41 probes with zero failures or blocked
   probes. It retains 50 unsupported and 320 unrun cells rather than treating
   discovery as full functional acceptance.
@@ -69,6 +73,13 @@ Full acceptance remains in progress. Remaining provider lifecycle cleanup,
 positive human elicitation, host webhook wakeup and the Fabric release require
 separate evidence. Fabric's native event-wait tool is implemented and pushed;
 its deployment remains subject to the full gateway release gate.
+
+The full dry run passes 2,000 gateway and 1,148 toolkit test files, both
+typechecks and the required lane benchmark. An apply run is terminated during
+its toolkit suite by the separate release campaign. A subsequent local retry is
+also stopped before runtime changes to avoid competing deployments. The Fabric
+release remains pending coordination with that campaign; these gates do not
+establish deployment.
 
 ## Live desktop acceptance
 
