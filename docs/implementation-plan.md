@@ -53,6 +53,7 @@ No package-age or application permission policy is weakened.
 
 The live runner writes a local JSON report with one cell per provider/operation
 and ordered caller/target pair. Cells are `live_pass`, `live_fail`,
-`implemented_unverified`, `unsupported`, `blocked` or `not_run`; each includes
+`unsupported`, `blocked` or `not_run`; each includes
 runtime version, timestamps and evidence. Full acceptance requires every
-supported requested cell to pass. No fixture test is counted as live evidence.
+supported requested cell to pass. Controlled protocol fixtures are not counted
+as live provider evidence.

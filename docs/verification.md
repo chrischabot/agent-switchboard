@@ -7,7 +7,7 @@ It omits private task names, transcript content, process IDs, and session IDs.
 
 The running Mac broker connects Codex desktop, Claude Code in Desktop, Fabric
 Tutti, and Maestro MCP 0.5.1. Dedicated fixtures isolate all live mutations.
-The local automated suite passes 139 tests, including persistence, caller
+The local automated suite passes 140 tests, including persistence, caller
 isolation, crash recovery, task and elicitation contracts, webhook signing,
 native event normalization, source replacement, cancellation and replay.
 
@@ -57,6 +57,11 @@ Additional live evidence establishes the following:
   session archive and restore, guarded steering and stop, and same-thread
   resume. The stopped native turn becomes `cancelled` with an idle runtime;
   the resumed turn completes with the expected acknowledgment.
+- The disposable Fabric project reaches `archived`, restores to `paused`
+  without resuming work, then accepts deletion through its native lifecycle
+  API and fresh impact token. The disposable session enters its native
+  ten-minute deletion undo window. Legacy resource deletion is rejected for
+  coordinated projects and is no longer the normalized binding.
 - A dedicated Codex fixture exercises guarded interruption and subsequent
   same-thread messaging. Native history confirms an interrupted turn followed
   by a completed continuation with the expected acknowledgment. This does not

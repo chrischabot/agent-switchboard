@@ -88,7 +88,7 @@ test('generic discovery retains provider-specific limits and schemas enforce mut
   const examples = [
     ['fabric', 'sessions.resume', { id: 'thr_fixture', requestId: 'fixture-resume', text: 'New prompt' }, 'text'],
     ['fabric', 'projects.update', { id: 'prj_fixture', requestId: 'fixture-update', brief: { goal: 'Fixture' } }, 'brief'],
-    ['fabric', 'projects.delete', { id: 'prj_fixture', requestId: 'fixture-delete', name: 'Exact current name' }, 'name'],
+    ['fabric', 'projects.delete', { id: 'prj_fixture', requestId: 'fixture-delete', confirmationToken: 'native-project-preview' }, 'confirmationToken'],
     ['maestro', 'sessions.rename', { id: 'fixture', requestId: 'fixture-rename', name: 'New name' }, 'name'],
     ['maestro', 'sessions.delete', { id: 'fixture', requestId: 'fixture-delete', confirmationToken: 'native-preview' }, 'confirmationToken'],
   ];
@@ -99,4 +99,29 @@ test('generic discovery retains provider-specific limits and schemas enforce mut
     const missing = { ...input }; delete missing[required];
     assert.equal(validate(missing), false, `${provider} ${operation} requires ${required}`);
   }
+});
+
+test('Fabric coordinated projects use native lifecycle previews and token-guarded deletion', async t => {
+  const f = fixture(t, 'fabric', [
+    tool('project_lifecycle_preview', { projectId: string }, ['projectId'], true),
+    tool('project_lifecycle', { projectId: string, action: { enum: ['archive', 'restore', 'delete'] },
+      idempotencyKey: string, confirmationToken: string }, ['projectId', 'action', 'idempotencyKey'], false),
+    tool('project_delete', { project: string, expectedName: string, confirm: { const: true } }, ['project', 'expectedName', 'confirm'], false),
+  ]);
+  const input = { id: 'owned-project-fixture' };
+  const preview = await f.broker.operate('caller', 'fabric', 'projects.delete_preview', input);
+  assert.equal(preview.kind, 'result');
+  assert.equal(f.store.list('caller').length, 0);
+  await assert.rejects(f.broker.operate('caller', 'fabric', 'projects.delete', { ...input, requestId: 'missing-preview-token' }), { code: 'invalid_arguments' });
+  assert.equal(f.calls.length, 1, 'A missing token cannot reach any native delete operation');
+  for (const action of ['archive', 'restore', 'delete']) {
+    const requestId = `project-lifecycle-${action}`;
+    const result = await f.broker.operate('caller', 'fabric', `projects.${action}`, { ...input, requestId,
+      ...(action === 'delete' ? { confirmationToken: 'exact-native-preview' } : {}) });
+    await Promise.all(f.broker.running.values());
+    assert.equal(f.store.get('caller', result.operation.id).status, 'succeeded');
+    assert.deepEqual(f.calls.at(-1), { name: 'project_lifecycle', args: { projectId: input.id, action, idempotencyKey: requestId,
+      ...(action === 'delete' ? { confirmationToken: 'exact-native-preview' } : {}) } });
+  }
+  assert.equal(f.calls.some(call => call.name === 'project_delete'), false, 'Legacy resource deletion cannot delete coordinated projects');
 });

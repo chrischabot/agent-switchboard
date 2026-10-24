@@ -24,7 +24,7 @@ receipt, resource invalidation, Tasks and native agent wakeup.
 | --- | --- | --- |
 | Codex desktop | Recent owned-session list, read, status projection, message, steer, exact-turn stop | Peer IPC does not expose project CRUD or session creation/archive/delete. A bounded empty list is not proof that no desktop sessions exist. |
 | Claude Code in Desktop | Live-session list, transcript/status projection, peer message | Broader lifecycle is app-internal. Receipt timeout can leave delivery unknown even when a later transcript proves execution. |
-| Fabric | Session/project operations backed by connected Tutti tools | Live tool catalog determines availability. Resume starts a new turn with an explicit prompt. New coordinated projects default to manual mode. |
+| Fabric | Session/project operations backed by connected Tutti tools | Live tool catalog determines availability. Session resume needs a prompt. New projects default to manual mode; project restore returns paused. Project deletion requires a native lifecycle preview token. |
 | Maestro | Session/project operations and native tool families | Native project capabilities, budget policy and current action schemas govern each operation. |
 
 `capabilities_get` reports exact supported operations, normalized input schemas,

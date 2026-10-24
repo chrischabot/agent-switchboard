@@ -81,13 +81,13 @@ const commonKeys = {
 const providerKeys = {
   maestro: { 'sessions.create': 'agentId budget seedAttachments', 'sessions.message': 'attachments mode',
     'sessions.steer': 'attachments', 'projects.update': 'name description sortOrder' },
-  fabric: { 'sessions.create': 'agentType', 'sessions.resume': 'text', 'projects.create': 'mode', 'projects.update': 'brief expectedRevision', 'projects.delete': 'name' },
+  fabric: { 'sessions.create': 'agentType', 'sessions.resume': 'text', 'projects.create': 'mode', 'projects.update': 'brief expectedRevision' },
 };
 const inputFields = {
   id: { type: 'string', minLength: 1, description: 'Exact native session/thread or project ID from this provider. Always use input.id, never sessionId, threadId or target.' },
   requestId: { type: 'string', minLength: 8, maxLength: 200, description: 'Caller-stable identity for this mutation. Reuse only for the same intent and arguments; uncertain writes are never automatically resent.' },
   text: { type: 'string', minLength: 1, description: 'Message or first prompt. Fabric resume requires a new prompt in this same thread.' },
-  name: { type: 'string', minLength: 1, description: 'New name/title; for Fabric project deletion, the exact current name guard.' },
+  name: { type: 'string', minLength: 1, description: 'New name/title.' },
   query: { type: 'string', minLength: 1 },
   limit: { type: 'integer', minimum: 1, maximum: 2000 },
   cursor: { type: 'string', minLength: 1, description: 'Opaque cursor returned by the same provider operation.' },
@@ -118,7 +118,6 @@ function inputKeys(provider, operation) {
     if (operation === 'sessions.read') allowed = ['id', 'maxChars'];
     if (operation === 'sessions.steer') allowed = ['id', 'text', 'requestId'];
   } else if (operation === 'sessions.read') allowed = allowed.filter(k => k !== 'maxChars');
-  if (provider === 'fabric' && operation === 'projects.delete') allowed = allowed.filter(k => k !== 'confirmationToken');
   if (provider === 'fabric' && operation === 'sessions.search') allowed = ['query'];
   if (provider === 'maestro' && ['sessions.steer', 'sessions.stop'].includes(operation)) allowed = allowed.filter(k => k !== 'expectedTurnId');
   return [...new Set(allowed.filter(Boolean))];
@@ -137,8 +136,8 @@ export function normalizedInputSchema(provider, operation) {
     if (action === 'search') required.push('query');
     if (!['list', 'search', 'read', 'status'].includes(action) && !(provider === 'fabric' && action === 'delete_preview')) required.push('requestId');
     if (['message', 'steer'].includes(action) || provider === 'fabric' && operation === 'sessions.resume') required.push('text');
-    if (action === 'rename' || family === 'projects' && action === 'create' || provider === 'fabric' && operation === 'projects.delete') required.push('name');
-    if (action === 'delete' && !(provider === 'fabric' && family === 'projects')) required.push('confirmationToken');
+    if (action === 'rename' || family === 'projects' && action === 'create') required.push('name');
+    if (action === 'delete') required.push('confirmationToken');
     if (provider === 'fabric' && operation === 'projects.update') required.push('brief');
     if (provider === 'fabric' && ['sessions.steer', 'sessions.stop'].includes(operation) || provider === 'codex' && operation === 'sessions.stop') required.push('expectedTurnId');
     if (properties.limit) properties.limit.maximum = provider === 'codex' ? 100 : provider === 'fabric' && operation === 'sessions.read' ? 2000 : 200;
@@ -248,10 +247,14 @@ export class Broker {
         'projects.read': ['project_snapshot', { projectId: id, view: 'overview' }],
         'projects.create': ['project_create_coordinated', compact({ name, description: options.description, idempotencyKey: requestId, mode: options.mode ?? 'manual' })],
         'projects.update': ['project_update_brief', compact({ projectId: id, idempotencyKey: requestId, brief: options.brief, expectedRevision: options.expectedRevision })],
-        'projects.delete': ['project_delete', { project: id, expectedName: name, confirm: true }],
+        'projects.archive': ['project_lifecycle', { projectId: id, action: 'archive', idempotencyKey: requestId }],
+        'projects.restore': ['project_lifecycle', { projectId: id, action: 'restore', idempotencyKey: requestId }],
+        'projects.delete_preview': ['project_lifecycle_preview', { projectId: id }],
+        'projects.delete': ['project_lifecycle', { projectId: id, action: 'delete', idempotencyKey: requestId, confirmationToken: options.confirmationToken }],
       };
       const b = bindings[operation];
       if (b) return { name: b[0], args: b[1], ...(action === 'resume' ? { semantics: 'new_turn_in_same_thread_requires_prompt' }
+        : operation === 'projects.restore' ? { semantics: 'restore_archived_project_to_paused_without_resuming' }
         : operation === 'sessions.search' ? { semantics: 'bounded_name_resolution_without_pagination' }
         : operation === 'projects.read' ? { semantics: 'coordinated_project_snapshot_requires_coordination' } : {}) };
     }
