@@ -1,150 +1,155 @@
-# Switchboard
+# Agent Switchboard
 
-Switchboard lets Codex and Claude Code communicate with the sessions you already
-have open on your Mac. It runs as a local Model Context Protocol (MCP) server in
-both clients, with tools to find running sessions, read recent conversation text,
-and send a message to a particular session.
+Agent Switchboard is a local MCP service that connects existing Codex and Claude
+Code desktop sessions, Fabric, and Maestro. Clients share a capability registry
+and session/project interface; each provider also exposes its native tools.
+The broker preserves the native session owner, permissions and spending controls.
 
-The point is to keep working where you are. If Claude needs a review from Codex,
-it can ask the Codex session that already knows the project, then read its
-response. Each session keeps its conversation, workspace, model, and permissions.
-Switchboard connects those sessions; it doesn't launch replacement agents or
-move their work into a separate orchestration system.
+The service runs on the Mac because the two desktop adapters require local IPC.
+Fabric and Maestro reach it through authenticated HTTPS, normally a Cloudflare
+Tunnel. The tunnel supplies ingress; Node and SQLite on the Mac own dispatch,
+receipts and event delivery. A sleeping or disconnected Mac is unavailable.
 
-This is an experimental integration with version-sensitive local interfaces.
-The verified path connects Codex desktop tasks and Claude Code sessions in
-Claude Desktop. Independent terminal sessions are not verified, and ordinary
-Claude Chat and Cowork conversations are outside its scope.
+## Status
+
+The implementation and automated protocol tests cover durable operations,
+MCP Tasks, resource subscriptions, human elicitation relay and MCP Events
+webhooks. Live acceptance is in progress. A registered connection, a dispatch
+receipt and completed agent work are different claims. See the
+[live matrix](docs/live-matrix.md) and [implementation record](docs/implementation-plan.md).
+
+| Provider | Normalized surface | Material limits |
+| --- | --- | --- |
+| Codex desktop | Recent owned-session list, read, status projection, message, steer, exact-turn stop | Peer IPC does not expose project CRUD or session creation/archive/delete. A bounded empty list is not proof that no desktop sessions exist. |
+| Claude Code in Desktop | Live-session list, transcript/status projection, peer message | Broader lifecycle is app-internal. Receipt timeout can leave delivery unknown even when a later transcript proves execution. |
+| Fabric | Session/project operations backed by connected Tutti tools | Live tool catalog determines availability. Resume starts a new turn with an explicit prompt. New coordinated projects default to manual mode. |
+| Maestro | Session/project operations and native tool families | Native project capabilities, budget policy and current action schemas govern each operation. |
+
+`capabilities_get` reports exact supported operations, normalized input schemas,
+read-only semantics, observed availability and provider versions. Unsupported
+operations remain explicit. This service does not manufacture desktop lifecycle
+support from unrelated host tools or substitute a separate CLI conversation.
 
 ## Install
 
-You need macOS, Node.js 24 or later with `node:sqlite`, and both agent clients
-installed under the same local account. Tests for this extraction ran on Node.js
-26.8.2. There are no package dependencies, API keys, or hosted services to
-configure for Switchboard itself. The agents retain their own authentication
-and usage costs.
-
-Clone the repository and run the tests:
+Use macOS with Node.js 24 or later and `node:sqlite`:
 
 ```sh
-git clone https://github.com/chrischabot/agent-switchboard.git \
-  ~/Projects/agent-switchboard
-cd ~/Projects/agent-switchboard
-npm test
-```
-
-From the repository directory, register the server in both clients:
-
-```sh
-claude mcp add --scope user --transport stdio agent-switchboard -- \
-  "$(command -v node)" "$PWD/server.mjs"
-
-codex mcp add agent-switchboard -- \
-  "$(command -v node)" "$PWD/server.mjs"
-```
-
-Both registrations use absolute paths. If you move the checkout or replace the
-Node.js executable, update those paths. Codex also accepts a
-`[mcp_servers.agent-switchboard]` entry in its configuration; see the
-[Codex MCP documentation](https://developers.openai.com/codex/mcp).
-
-Reload the MCP connection when your client supports it, or open a session that
-loads the updated configuration. A saved registration doesn't establish that
-an already-running conversation has loaded the tools. Check for `codex_list`
-and `claude_list` in each client's tool catalog before using them.
-
-## Use it
-
-Start by asking either agent to list the running Codex and Claude Code sessions.
-Choose the intended session from that list, then ask it to read the recent
-conversation or send a specific request. For example:
-
-> Find the Codex session working on this project, read its recent messages, and
-> ask it to review the parser changes. Don't ask it to edit files.
-
-Reads and messages use exact session UUIDs, so an agent must resolve an ambiguous
-name before sending. A message is a request to another agent, not a synchronous
-function call: inspect the receiving conversation for its response.
-
-The following table describes the seven tools:
-
-| Tool | Required arguments | Behavior |
-| --- | --- | --- |
-| `codex_list` | None | Checks recent saved sessions for a live desktop owner |
-| `codex_owner` | `sessionId` | Finds the owner of an exact Codex session |
-| `codex_read` | `sessionId` | Reads recent persisted messages and recorded turn status |
-| `codex_send` | `sessionId`, `text`, `mode` | Sends to an idle (`start`) or active (`steer`) task |
-| `claude_list` | None | Lists live registered Claude Code processes |
-| `claude_read` | `sessionId` | Reads recent user and assistant transcript text |
-| `claude_send` | `sessionId`, `text` | Sends to the session inbox and collects immediate policy receipts |
-
-`codex_list` examines 30 recent saved sessions by default, with a maximum `limit`
-of 100; it isn't a complete inventory of every open task. Both read tools accept
-`maxChars`, and `claude_send` accepts `receiptWaitMs`. The MCP schemas describe
-their limits.
-
-To check the MCP connection without asking an agent to call a tool, run the
-diagnostic client:
-
-```sh
-node mcp-client.mjs claude_list '{}'
-node mcp-client.mjs codex_list '{"limit":10}'
-```
-
-This client starts only the MCP server, initializes it, retrieves the tool
-catalog, and calls the selected tool. It doesn't start a model session.
-
-## Permissions and delivery
-
-Installing Switchboard gives the connected agent tools to read and direct other
-local sessions. Only install it in clients you trust with that access. The
-receiving agent can act with its own permissions, so sending a request can cause
-file changes, command execution, or external actions there. Switchboard does not
-provide cross-session permission isolation.
-
-The adapters check local ownership, require private messaging sockets, read
-history without modifying it, and preserve the recipient's approval controls.
-Peer messages carry a Switchboard label, but that label is not authentication.
-Treat conversation content as untrusted input.
-
-Claude can hold or refuse a message. `transport-sent` means the socket write
-finished, not that the agent accepted or completed the request. Similarly,
-`owner-accepted` from Codex is not proof of completion. After a timeout, inspect
-the conversation before retrying; the first message might already have arrived.
-
-## Compatibility
-
-Live tests on September 11, 2026, demonstrated discovery, transcript reads, and
-bidirectional messaging between existing desktop sessions, including a second
-exchange after Claude became idle. Claude used its installed MCP tools; the
-Codex outbound path used the diagnostic MCP client. Those results do not
-establish compatibility with later application versions.
-
-Codex idle `start` is implemented but lacks the live verification of `steer`.
-Session creation, cancellation, a Codex terminal adapter, and durable delivery
-receipts are not implemented. Claude terminal sessions that publish the same
-registry and inbox are discoverable by the adapter, but terminal messaging needs
-separate live acceptance. Recheck discovery, reads, and a bounded round trip
-after client upgrades.
-
-For protocol details and the limits of the local checks, see the
-[architecture](docs/architecture.md) and
-[verification record](docs/verification.md).
-
-## Development
-
-Run syntax checks and the local test suite:
-
-```sh
+npm ci
 npm run check
 npm test
 ```
 
-The tests use temporary sockets and fixture records. They do not message your
-running agents. Keep transcripts, session identifiers, peer keys, and local
-configuration out of commits; `evidence/local/` is ignored for private test
-records.
+Create a private directory such as `~/.local/state/agent-switchboard` with mode
+`0700`. Keep `config.json` and separate random bearer-token files for `operator`,
+`codex`, `claude`, `fabric` and `maestro` there, all mode `0600`. Each token must
+have at least 32 characters; use 32 random bytes or more. Never commit them.
 
-## License
+## Configuration
 
-Switchboard is available under the [MIT license](LICENSE).
+All paths are absolute. This example omits providers whose native MCP connection
+has not yet been configured; desktop adapters are loaded automatically.
+
+```json
+{
+  "port": 8796,
+  "stateDir": "/absolute/private/switchboard",
+  "clients": {
+    "operator": { "tokenFile": "/absolute/private/operator.token", "providers": ["codex", "claude", "fabric", "maestro"] },
+    "codex": { "tokenFile": "/absolute/private/codex.token", "providers": ["codex", "claude", "fabric", "maestro"] },
+    "claude": { "tokenFile": "/absolute/private/claude.token", "providers": ["codex", "claude", "fabric", "maestro"] },
+    "fabric": { "tokenFile": "/absolute/private/fabric.token", "providers": ["codex", "claude", "fabric", "maestro"] },
+    "maestro": { "tokenFile": "/absolute/private/maestro.token", "providers": ["codex", "claude", "fabric", "maestro"] }
+  },
+  "providers": {
+    "fabric": {
+      "url": "https://your-fabric.example/tutti",
+      "tokenFile": "/absolute/private/fabric-native.token",
+      "supportsInputRequired": true
+    },
+    "maestro": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/maestro-mcp/bin/maestro-mcp.mjs"],
+      "env": { "MAESTRO_BROKER_SOCKET": "/absolute/private/maestro/broker.sock" },
+      "supportsInputRequired": true
+    }
+  }
+}
+```
+
+`supportsInputRequired` pins the native connection to MCP `2026-07-28` and enables
+form/URL elicitation relay. Set it only for a verified compatible provider.
+For Fabric, `codexCredential: {file, serverName}` can replace `tokenFile`; the
+adapter rereads the matching exact-endpoint OAuth credential on every request.
+The native credential grants access to Fabric. Client tokens above grant access
+to this broker; these are separate credentials.
+
+Start `node bin/hub.mjs`, or install its LaunchAgent with
+`node bin/install-service.mjs`. Set `SWITCHBOARD_CONFIG` when using a nondefault
+configuration path. See [operations](docs/operations.md) for restart and tunnel
+behavior.
+
+Register `node /absolute/path/to/agent-switchboard/bin/client.mjs` as a stdio MCP
+server in each desktop client. Set its `SWITCHBOARD_TOKEN_FILE` to that client's
+private token file. The shim connects to the shared local service; it does not
+start a second broker. Existing conversations may need an MCP reload or a new
+session to load updated registration.
+
+For Fabric and Maestro use the tunnel's HTTPS `/mcp` endpoint and the respective
+client bearer token. Maestro's connector is `agent_switchboard` with credential
+service type `agent_switchboard_mcp`; store the URL in `metadata.mcp_endpoint`.
+Enable the integration in the exact intended session or project through native
+capability controls. Saving credentials alone does not enable an agent tool.
+
+## Use
+
+Call `agents_list`, then `capabilities_get` for the target provider. A status
+request uses this shape:
+
+```json
+{ "provider": "maestro", "action": "status", "input": { "id": "exact-native-session-id" } }
+```
+
+Use the `sessions` tool for that request. Mutations add a stable
+`input.requestId`; reusing it with changed arguments is refused. Use
+`provider_tools_list` with an exact name before `provider_call` for functions
+outside the normalized interface. For mixed native tool families, consult the
+provider's action schema as well as its broad discovery schema.
+
+A mutation returns an operation receipt or an MCP Task when the client supports
+Tasks. Inspect native status/transcripts to establish execution completion.
+Cancellation of a Task only cancels queued dispatch; stopping a running agent
+requires `sessions` with action `stop` and any native exact-turn guard.
+
+## Protocols and delivery
+
+- **Tasks:** durable caller-scoped task handles, status, cancellation
+  acknowledgment and input-response continuation. Unknown dispatch outcomes are
+  retained across restart and never replayed automatically.
+- **Subscriptions:** resource invalidation notifications and replayable local
+  journal cursors. Resource notifications do not themselves start model turns.
+- **Elicitation:** bounded native form/URL input requests, with responses supplied
+  through the MCP client's human interaction path. No model answer argument is
+  exposed as human authorization.
+- **Events:** webhook subscription verification, signed delivery, durable
+  cursors, expiry, bounded retries and key rotation. Webhook acknowledgment does
+  not establish a client wakeup or model action. Host acceptance remains a
+  separate live test, especially for local desktop clients.
+
+All peer content stays untrusted. Native approval controls remain authoritative.
+The broker does not provide isolation between an authorized caller and the
+recipient agent's granted tools. Use distinct tokens and narrow provider grants.
+
+## Verification
+
+`npm test` uses controlled services, temporary databases and sockets; it does not
+message running agents. `npm run test:live` exercises registered connections and
+read-only fixture checks, writing private reports under ignored `evidence/live/`.
+Mutation and actual originating-agent tests need exact dedicated fixtures and
+separate recorded evidence. See [the matrix runbook](docs/live-matrix.md).
+
+The original seven-tool desktop-only stdio entrypoint remains at `server.mjs`.
+Its [legacy guide](docs/desktop-legacy.md) and [protocol notes](docs/architecture.md)
+describe that narrower interface.
+
+[MIT license](LICENSE).

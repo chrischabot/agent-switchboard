@@ -161,6 +161,20 @@ export async function codexOwner({ sessionId }) {
   return await withIPC(async (ipc) => ({ sessionId, owner: await ipc.owner(sessionId), live: true }));
 }
 
+export async function codexStop({ sessionId, expectedTurnId }) {
+  id(sessionId);
+  if (typeof expectedTurnId !== 'string' || !expectedTurnId || expectedTurnId.length > 200)
+    throw new Error('Stopping requires the exact expectedTurnId from session status.');
+  return withIPC(async (ipc) => {
+    const owner = await ipc.owner(sessionId);
+    const response = await ipc.request('thread-follower-interrupt-turn', {
+      conversationId: sessionId, mode: 'user-stop', expectedTurnId,
+    }, 4, owner);
+    return { sessionId, owner, state: 'owner-accepted', result: response.result,
+      complete: false, verification: 'Read status to confirm the exact turn stopped.' };
+  });
+}
+
 export async function codexRead({ sessionId, maxChars }) {
   id(sessionId);
   const cap = bounded(maxChars, 16000, 100000);

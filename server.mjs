@@ -22,10 +22,11 @@ const entries = [
   ['claude_send', 'Sends through the existing Claude session messaging socket and collects immediate policy receipts. Uses verified Codex host context when available; never changes destination permissions. Transport success is not an acknowledgment.', claudeSend,
     { sessionId, text, receiptWaitMs: { type: 'integer', minimum: 1, maximum: 5000 } }, ['sessionId', 'text'], false],
 ];
-const tools = entries.map(([name, description, , properties, required, readOnlyHint]) => ({
+export const desktopTools = entries.map(([name, description, , properties, required, readOnlyHint]) => ({
   name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false },
   annotations: { readOnlyHint, destructiveHint: !readOnlyHint, openWorldHint: false },
 }));
+const tools = desktopTools;
 
 export async function call(name, args = {}, context) {
   const entry = entries.find((item) => item[0] === name);
