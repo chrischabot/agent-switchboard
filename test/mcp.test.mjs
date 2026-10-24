@@ -357,3 +357,28 @@ test('a caller lacking form capability is never sent an unsupported form request
   assert.ok(response.body?.error || response.status >= 400, JSON.stringify(response.body));
   assert.equal(f.store.question('alice', question).response, null);
 });
+
+test('read-only query tools are discoverable and cannot smuggle a mutation through their action field', async t => {
+  const f = await fixture(t);
+  const p = f.broker.providers.get('fixture');
+  p.catalog = [
+    { name: 'codex_read', annotations: { readOnlyHint: true } },
+    { name: 'codex_send', annotations: { readOnlyHint: false } },
+  ];
+  f.broker.providers.set('codex', p);
+  f.broker.config.clients.alice.providers.push('codex');
+  const catalog = (await f.rpc('tools/list')).body.result.tools;
+  assert.equal(catalog.find(tool => tool.name === 'sessions_query').annotations.readOnlyHint, true);
+  assert.equal(catalog.find(tool => tool.name === 'projects_query').annotations.readOnlyHint, true);
+  assert.equal(catalog.find(tool => tool.name === 'sessions').annotations.readOnlyHint, false);
+  const read = await f.call('sessions_query', { provider: 'codex', action: 'status', input: { id: 'fixture-native-id' } });
+  assert.equal(read.body.result.structuredContent.kind, 'result');
+  assert.equal(f.calls.length, 1);
+  const rejected = await f.call('sessions_query', { provider: 'codex', action: 'message', input: {
+    id: 'fixture-native-id', text: 'unauthorized mutation through a passive tool', requestId: 'bad-readonly-call' } });
+  assert.equal(rejected.body.result.isError, true);
+  const project = await f.call('projects_query', { provider: 'codex', action: 'create', input: { name: 'bad', requestId: 'bad-project-read' } });
+  assert.equal(project.body.result.isError, true);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.store.list('alice').length, 0);
+});

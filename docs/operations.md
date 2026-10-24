@@ -66,8 +66,8 @@ unknown, including when a provider request might already have executed.
 
 Resources invalidate caller-scoped journal projections. Read `events_read` with
 an exclusive cursor to replay durable changes. Clients must handle dropped
-notification streams and reconnect. Upstream provider resource events are not
-yet translated into the hub journal; only hub operation events are durable here.
+notification streams and reconnect. Exact-session watches translate supported native events into the durable hub
+journal. Unwatched sessions do not produce background observation traffic.
 
 Webhook subscribers must use public HTTPS port 443. The sender validates and pins
 public DNS addresses for every connection, refuses redirects, signs exact body

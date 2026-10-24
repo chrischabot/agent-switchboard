@@ -47,8 +47,8 @@ have at least 32 characters; use 32 random bytes or more. Never commit them.
 
 ## Configuration
 
-All paths are absolute. This example omits providers whose native MCP connection
-has not yet been configured; desktop adapters are loaded automatically.
+Use absolute paths and configure each provider explicitly. The desktop entries
+select the local IPC adapters.
 
 ```json
 {
@@ -62,6 +62,8 @@ has not yet been configured; desktop adapters are loaded automatically.
     "maestro": { "tokenFile": "/absolute/private/maestro.token", "providers": ["codex", "claude", "fabric", "maestro"] }
   },
   "providers": {
+    "codex": { "kind": "desktop" },
+    "claude": { "kind": "desktop" },
     "fabric": {
       "url": "https://your-fabric.example/tutti",
       "tokenFile": "/absolute/private/fabric-native.token",
@@ -91,7 +93,8 @@ behavior.
 
 Register `node /absolute/path/to/agent-switchboard/bin/client.mjs` as a stdio MCP
 server in each desktop client. Set its `SWITCHBOARD_TOKEN_FILE` to that client's
-private token file. The shim connects to the shared local service; it does not
+private token file. Set `SWITCHBOARD_URL` if you change the default local port.
+The shim connects to the shared local service; it does not
 start a second broker. Existing conversations may need an MCP reload or a new
 session to load updated registration.
 
@@ -110,7 +113,7 @@ request uses this shape:
 { "provider": "maestro", "action": "status", "input": { "id": "exact-native-session-id" } }
 ```
 
-Use the `sessions` tool for that request. Mutations add a stable
+Use the read-only `sessions_query` tool for that request. Mutations add a stable
 `input.requestId`; reusing it with changed arguments is refused. Use
 `provider_tools_list` with an exact name before `provider_call` for functions
 outside the normalized interface. For mixed native tool families, consult the
@@ -120,6 +123,14 @@ A mutation returns an operation receipt or an MCP Task when the client supports
 Tasks. Inspect native status/transcripts to establish execution completion.
 Cancellation of a Task only cancels queued dispatch; stopping a running agent
 requires `sessions` with action `stop` and any native exact-turn guard.
+
+## Session event subscriptions
+
+Use `events_catalog` to discover turn, error, output block, input request, state,
+and observation gap events. Use `events_watch` for a durable exact-session
+journal, MCP Events for signed webhooks, or `events_follow` for a bounded peer
+notification to another session. See [event subscriptions](docs/events.md) for
+the catalog, race-free job subscription sequence, and provider limits.
 
 ## Protocols and delivery
 

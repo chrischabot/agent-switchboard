@@ -66,7 +66,7 @@ function dispatchStatus(result) {
 const common = ['sessions.list', 'sessions.search', 'sessions.read', 'sessions.status',
   'sessions.create', 'sessions.message', 'sessions.steer', 'sessions.stop', 'sessions.resume',
   'sessions.rename', 'sessions.archive', 'sessions.restore', 'sessions.delete_preview', 'sessions.delete',
-  'projects.list', 'projects.read', 'projects.create', 'projects.update', 'projects.archive', 'projects.restore', 'projects.delete'];
+  'projects.list', 'projects.search', 'projects.read', 'projects.create', 'projects.update', 'projects.archive', 'projects.restore', 'projects.delete_preview', 'projects.delete'];
 const commonKeys = {
   'sessions.list': 'limit cursor', 'sessions.search': 'query limit cursor', 'sessions.read': 'id limit cursor maxChars',
   'sessions.status': 'id', 'sessions.create': 'name text projectId requestId',
@@ -76,7 +76,7 @@ const commonKeys = {
   'sessions.delete_preview': 'id requestId', 'sessions.delete': 'id requestId confirmationToken',
   'projects.list': 'limit cursor', 'projects.search': 'query limit cursor', 'projects.read': 'id',
   'projects.create': 'name description requestId', 'projects.update': 'id requestId',
-  'projects.archive': 'id requestId', 'projects.restore': 'id requestId', 'projects.delete': 'id requestId confirmationToken',
+  'projects.archive': 'id requestId', 'projects.restore': 'id requestId', 'projects.delete_preview': 'id requestId', 'projects.delete': 'id requestId confirmationToken',
 };
 const providerKeys = {
   maestro: { 'sessions.create': 'agentId budget seedAttachments', 'sessions.message': 'attachments mode',
@@ -197,7 +197,9 @@ export class Broker {
       return { operation, support: supported ? p.descriptor.support : 'unsupported',
         availability: supported ? p.descriptor.availability : 'unsupported', verification: 'declared',
         ...(supported ? { nativeTool: binding.name, semantics: binding.semantics ?? operation,
-          readOnly: providerToolReadOnly(id, nativeTool, binding.args), inputSchema: normalizedInputSchema(id, operation) } : {}),
+          readOnly: providerToolReadOnly(id, nativeTool, binding.args),
+          ...(providerToolReadOnly(id, nativeTool, binding.args) && !operation.endsWith('delete_preview') ? { readTool: operation.startsWith('sessions.') ? 'sessions_query' : 'projects_query' } : {}),
+          inputSchema: normalizedInputSchema(id, operation) } : {}),
         retry: supported ? 'broker_deduplicated_no_uncertain_replay' : 'unavailable' };
     }), nativeTools: p.catalog.map(t => ({ name: t.name, readOnly: t.annotations?.readOnlyHint === true })) };
   }
@@ -304,6 +306,41 @@ export class Broker {
       throw fault('missing_turn_guard', 'Read status and supply expectedTurnId before steering or stopping.');
     const binding = this.bind(provider, operation, input, caller);
     return this.invoke(caller, provider, binding.name, binding.args, input.requestId, context);
+  }
+  async notify(caller, provider, input, context) {
+    this.provider(caller, provider);
+    // Recovery reuses the already-journaled dispatch, including the disposition
+    // chosen before a crash. A later idle/busy state cannot resend the ping.
+    const row = this.store.db.prepare('SELECT id FROM operations WHERE principal=? AND request_key=?').get(caller, input.requestId);
+    if (row) {
+      const old = this.store.get(caller, row.id), args = old.request.args;
+      if (old.provider !== provider || (args.sessionId ?? args.thread ?? args.target?.id) !== input.id
+        || (args.text ?? args.prompt ?? args.message) !== input.text)
+        throw fault('conflict', 'This notification requestId already identifies another dispatch.');
+      return { kind: 'operation', operation: old };
+    }
+    let action = 'message', expectedTurnId;
+    if (['codex', 'fabric', 'maestro'].includes(provider)) {
+      const result = await this.operate(caller, provider, 'sessions.status', { id: input.id }, context);
+      if (result.kind !== 'result') throw fault('status_unavailable', 'Native notification disposition requires a passive status result.');
+      const value = toolValue(result.value);
+      if (result.value?.isError || value?.error) throw fault('status_unavailable', 'Native status failed; the notification was not dispatched.');
+      const state = provider === 'codex' ? value.latestTurn?.status
+        : provider === 'fabric' ? value.turn?.status ?? value.turn?.state : value.data?.state?.status;
+      const active = ['inProgress', 'running', 'active', 'working', 'waiting', 'initializing'].includes(state);
+      const idle = ['completed', 'failed', 'cancelled', 'interrupted', 'ready', 'stopped', 'paused', 'none'].includes(state);
+      const empty = provider === 'codex' && value.latestTurn == null && value.sessionId === input.id && value.source === 'read-only local history projection'
+        || provider === 'maestro' && value.data?.state?.seq === 0 && value.data.state.status === null && value.data.state.thread_id === input.id;
+      if (!active && !idle && !empty) throw fault('status_unavailable', 'The native destination state is unrecognized; the notification was not dispatched.');
+      if (active) {
+        action = 'steer';
+        if (provider === 'fabric') {
+          expectedTurnId = value.turn?.turnId ?? value.cursor?.turnId;
+          if (!expectedTurnId) throw fault('missing_turn_guard', 'The active destination has no exact turn ID; the notification was not dispatched.');
+        }
+      }
+    }
+    return this.operate(caller, provider, `sessions.${action}`, { ...input, ...(expectedTurnId ? { expectedTurnId } : {}) }, context);
   }
   dispatch(operation) {
     if (this.closing || this.running.has(operation.id)) return;

@@ -3,7 +3,9 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { readFile } from 'node:fs/promises';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { call as desktopCall, desktopTools } from '../server.mjs';
-import { codexStop } from '../switchboard.mjs';
+import { codexStop, desktopEventFile } from '../switchboard.mjs';
+import { watchJsonLines } from './local-event-source.mjs';
+import { normalizeSessionEvent } from './session-events.mjs';
 import { fault } from './store.mjs';
 
 const ajv = new Ajv2020({ strict: false, allErrors: true, validateFormats: false });
@@ -27,6 +29,10 @@ export const toolValue = result => {
 export class DesktopProvider {
   constructor(id) {
     this.id = id;
+    this.sessionEventSource = 'native transcript append notifications; observation may lag generation';
+    this.sessionEventTypes = id === 'codex'
+      ? ['session.turn.started', 'session.turn.ended', 'session.block.completed', 'session.error', 'session.source.gap']
+      : ['session.turn.ended', 'session.block.completed', 'session.error', 'session.source.gap'];
     this.descriptor = { id, kind: 'desktop', support: 'adapted', availability: 'unknown',
       verification: 'declared', limitations: ['Only existing locally owned sessions; lifecycle capabilities are individually declared.'] };
     this.catalog = desktopTools.filter(t => t.name.startsWith(`${id}_`));
@@ -55,6 +61,7 @@ export class DesktopProvider {
     return result;
   }
   async close() {}
+  async watchSession(sessionId, options) { return watchJsonLines(await desktopEventFile(this.id, sessionId), this.id, options); }
 }
 
 // Credentials are resolved only in this local adapter and never appear in the
@@ -109,6 +116,12 @@ export class McpProvider {
       };
       this.descriptor = { ...this.descriptor, availability: 'ready', serverInfo: client.getServerVersion(),
         capabilities: client.getServerCapabilities(), observedAt: new Date().toISOString() };
+      this.sessionEventTypes = this.id === 'maestro' && tools.some(t => t.name === 'maestro_watch')
+        ? ['session.turn.ended', 'session.block.created', 'session.block.updated', 'session.state.changed', 'session.error', 'session.input_required', 'session.source.gap']
+        : this.id === 'fabric' && tools.some(t => t.name === 'thread_events_wait')
+          ? ['session.turn.started', 'session.turn.ended', 'session.block.created', 'session.block.updated', 'session.block.completed', 'session.error', 'session.input_required', 'session.source.gap'] : [];
+      this.sessionEventSource = this.id === 'maestro' ? 'native broker journal and event-driven wait; gaps remain explicit'
+        : 'native Fabric stream; requires thread_events_wait in the connected Tutti catalog';
       return this.descriptor;
     } catch (error) {
       await transport.close();
@@ -133,6 +146,40 @@ export class McpProvider {
   async readResource(params) { return this.client.readResource(params); }
   async prompts(params) { return this.client.listPrompts(params); }
   async getPrompt(params) { return this.client.getPrompt(params); }
+  async watchSession(sessionId, { cursor, onEvent, onError }) {
+    if (!this.client) await this.connect();
+    const controller = new AbortController();
+    const name = this.id === 'maestro' ? 'maestro_watch' : 'thread_events_wait';
+    if (!this.sessionEventTypes?.length || !this.catalog.some(tool => tool.name === name))
+      throw fault('unsupported', 'The connected provider does not expose a session event source.');
+    let current = cursor;
+    let ready, failed;
+    const established = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
+    let first = true;
+    const work = (async () => {
+      while (!controller.signal.aborted) {
+        const args = this.id === 'maestro' ? { action: 'changes', targets: [{ connectionId: 'maestro', kind: 'session', id: sessionId }],
+          ...(this.catalog.find(t => t.name === 'maestro_watch')?.inputSchema?.properties?.projection?.enum?.includes('metadata') ? { projection: 'metadata' } : {}),
+          ...(current ? { cursor: current } : {}), waitMs: first ? 0 : 30000, events: ['progress', 'question', 'failure', 'completion', 'budget', 'configuration', 'roster'], page: { limit: 50 } }
+          : { thread: sessionId, ...(current !== undefined ? { afterSequence: current } : {}), waitMs: first ? 0 : 12000, limit: 200 };
+        const raw = await this.client.callTool({ name, arguments: args }, { timeout: 45000, signal: controller.signal });
+        const value = toolValue(raw);
+        if (raw.isError || value?.error || ['rejected', 'unavailable'].includes(value?.status)) throw new Error('Native event source refused the watch.');
+        const data = this.id === 'maestro' ? value.data : value;
+        if (!Array.isArray(data?.events) || this.id === 'maestro' && typeof data.cursor !== 'string'
+          || this.id === 'fabric' && !Number.isSafeInteger(data.nextAfterSequence))
+          throw new Error('Native event replay is not a bounded event page.');
+        const events = (data.events ?? []).flatMap(event => normalizeSessionEvent(this.id, event, String(event.seq ?? event.sequence)));
+        if (data.gap || data.resyncRequired || data.limits?.snapshotRequired)
+          events.unshift({ name: 'session.source.gap', scope: 'source', sourceId: `gap:${data.cursor ?? data.nextAfterSequence}` });
+        current = data.cursor ?? data.nextAfterSequence ?? current;
+        onEvent(events, current);
+        if (first) { first = false; ready(); }
+      }
+    })().catch(error => { if (first) failed(error); if (!controller.signal.aborted) onError(); });
+    await established;
+    return async () => { controller.abort(); await work; };
+  }
   async close() { await this.client?.close(); }
 }
 

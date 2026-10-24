@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { fingerprint, fault } from './store.mjs';
 import { callbackUrl, secretKey, postWebhook } from './webhooks.mjs';
+import { sessionEventDefinitions } from './session-events.mjs';
 
 export const eventDefinition = { name: 'operation.changed', description: 'A durable provider-call receipt changed. The event does not assert agent execution completion.',
   delivery: ['webhook'], inputSchema: { type: 'object', properties: { provider: { type: 'string' }, operationId: { type: 'string' } }, additionalProperties: false },
@@ -20,14 +21,19 @@ export class Events {
   load(id) { const row = this.db.prepare('SELECT body FROM subscriptions WHERE id=?').get(id); return row && JSON.parse(row.body); }
   save(s) { this.db.prepare('INSERT OR REPLACE INTO subscriptions VALUES(?,?,?)').run(s.id, s.principal, JSON.stringify(s)); }
   identity(caller, params) {
-    if (params.name !== eventDefinition.name || !params.arguments || typeof params.arguments !== 'object' || Array.isArray(params.arguments)
-      || Object.keys(params.arguments).some(key => !['provider', 'operationId'].includes(key))
+    const session = sessionEventDefinitions.some(def => def.name === params.name);
+    if ((!session && params.name !== eventDefinition.name) || !params.arguments || typeof params.arguments !== 'object' || Array.isArray(params.arguments)
+      || Object.keys(params.arguments).some(key => !(session ? ['provider', 'sessionId', 'turnId'] : ['provider', 'operationId']).includes(key))
       || Object.values(params.arguments).some(value => typeof value !== 'string' || !value || value.length > 200)
       || params.delivery?.mode !== 'webhook') throw fault('invalid_arguments', 'Invalid event subscription.');
     const url = callbackUrl(params.delivery.url).href;
     if (params.arguments.provider) this.broker.provider(caller, params.arguments.provider);
     else this.broker.principal(caller);
     if (params.arguments.operationId) this.broker.store.get(caller, params.arguments.operationId);
+    const source = session && params.arguments.provider ? this.broker.provider(caller, params.arguments.provider) : null;
+    if (session && (!params.arguments.provider || !params.arguments.sessionId
+      || source.descriptor?.availability === 'ready' && !source.sessionEventTypes?.includes(params.name)))
+      throw fault('unsupported', 'The event requires an exact provider/sessionId and a connected source supporting this type.');
     return { id: fingerprint([caller, url, params.name, params.arguments]), url };
   }
   async subscribe(caller, params) {
@@ -59,6 +65,10 @@ export class Events {
         throw Object.assign(new Error('Callback verification failed.'), { code: -32015, data: { reason: 'challenge_failed' } });
       subscription.verifiedAt = now;
     }
+    if (params.name !== eventDefinition.name) await this.broker.sessionEvents.watch(caller, {
+      provider: params.arguments.provider, sessionId: params.arguments.sessionId,
+      ttlMs: subscription.expiresAt - now,
+    });
     this.save(subscription); this.kick(id);
     return { id, refreshBefore: new Date(subscription.expiresAt).toISOString(), cursor: String(subscription.cursor), truncated: false };
   }
@@ -81,13 +91,20 @@ export class Events {
       if (s.nextAt > this.now()) { this.schedule(id, s.nextAt - this.now()); return; }
       let grants; try { grants = this.broker.principal(s.principal).providers; } catch { s.state = 'revoked'; this.save(s); return; }
       if (s.arguments.provider && !grants.includes(s.arguments.provider)) { s.state = 'revoked'; this.save(s); return; }
-      const e = this.db.prepare("SELECT e.*,o.provider FROM events e JOIN operations o ON o.id=e.object_id AND o.principal=e.principal WHERE e.principal=? AND e.seq>? AND e.topic LIKE 'operation.%' ORDER BY e.seq LIMIT 1").get(s.principal, s.cursor);
+      const e = this.db.prepare('SELECT * FROM events WHERE principal=? AND seq>? ORDER BY seq LIMIT 1').get(s.principal, s.cursor);
       if (!e) return;
-      if (!grants.includes(e.provider) || (s.arguments.provider && s.arguments.provider !== e.provider) || (s.arguments.operationId && s.arguments.operationId !== e.object_id)) {
+      const data = JSON.parse(e.data), operation = e.topic.startsWith('operation.');
+      const provider = operation ? this.broker.store.get(s.principal, e.object_id).provider : data.provider;
+      const name = operation ? 'operation.changed' : e.topic;
+      if (name !== s.name || !grants.includes(provider) || (s.arguments.provider && s.arguments.provider !== provider)
+        || (s.arguments.operationId && s.arguments.operationId !== e.object_id)
+        || (s.arguments.sessionId && s.arguments.sessionId !== data.sessionId)
+        || (s.arguments.turnId && s.arguments.turnId !== data.turnId)) {
         s.cursor = e.seq; this.save(s); continue;
       }
       const event = { eventId: `switchboard_${e.seq}`, name: s.name, timestamp: e.created_at,
-        data: { operationId: e.object_id, provider: e.provider, status: e.topic.slice('operation.'.length), journalCursor: e.seq }, cursor: String(e.seq) };
+        data: operation ? { operationId: e.object_id, provider, status: e.topic.slice('operation.'.length), journalCursor: e.seq }
+          : { ...data, journalCursor: e.seq }, cursor: String(e.seq) };
       let response; try { response = await this.send(s, event.eventId, JSON.stringify(event)); } catch { response = { status: 0 }; }
       // An unsubscribe or refresh while HTTPS was in flight must not be undone.
       const latest = this.load(id);

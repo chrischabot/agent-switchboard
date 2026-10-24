@@ -161,6 +161,20 @@ export async function codexOwner({ sessionId }) {
   return await withIPC(async (ipc) => ({ sessionId, owner: await ipc.owner(sessionId), live: true }));
 }
 
+export async function desktopEventFile(provider, sessionId) {
+  id(sessionId);
+  if (provider === 'codex') {
+    await codexOwner({ sessionId });
+    const row = codexRows(sessionId)[0];
+    if (!row?.rollout_path) throw new Error('No native rollout is recorded for this exact session.');
+    return row.rollout_path;
+  }
+  if (provider !== 'claude') throw new Error('Unknown desktop event provider.');
+  const row = await claudeSession(sessionId);
+  const project = row.cwd.replace(/[^a-zA-Z0-9]/g, '-');
+  return path.join(roots.claude, 'projects', project, `${sessionId}.jsonl`);
+}
+
 export async function codexStop({ sessionId, expectedTurnId }) {
   id(sessionId);
   if (typeof expectedTurnId !== 'string' || !expectedTurnId || expectedTurnId.length > 200)

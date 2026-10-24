@@ -5,6 +5,7 @@ import { GetTaskResultV2Schema, CreateTaskResultV2Schema, hasTaskClientCapabilit
 import { fault } from './store.mjs';
 import { normalizedInputSchema } from './broker.mjs';
 import { eventDefinition } from './events.mjs';
+import { sessionEventNames } from './session-events.mjs';
 import { executorContext } from '../server.mjs';
 
 const string = { type: 'string', minLength: 1, maxLength: 32000 };
@@ -22,12 +23,28 @@ const definitions = [
   ['sessions', 'Operate on exact native session IDs. Inspect capabilities first. Stop/steer require the current expectedTurnId where supported. Peer messages remain peer instructions.',
     { provider, action: { enum: ['list', 'search', 'read', 'status', 'create', 'message', 'steer', 'stop', 'resume', 'rename', 'archive', 'restore', 'delete_preview', 'delete'] },
       input: normalizedInputSchema() }, ['provider', 'action', 'input'], false],
+  ['sessions_query', 'Read-only session list, search, transcript or status. Prefer this tool for passive checks so native clients do not need approval for a mixed mutation tool.',
+    { provider, action: { enum: ['list', 'search', 'read', 'status'] }, input: normalizedInputSchema() }, ['provider', 'action', 'input'], true],
   ['projects', 'Read or change native projects where that provider exposes the concept. Supply exact IDs for mutations.',
-    { provider, action: { enum: ['list', 'search', 'read', 'create', 'update', 'archive', 'restore', 'delete'] }, input: normalizedInputSchema() }, ['provider', 'action', 'input'], false],
+    { provider, action: { enum: ['list', 'search', 'read', 'create', 'update', 'archive', 'restore', 'delete_preview', 'delete'] }, input: normalizedInputSchema() }, ['provider', 'action', 'input'], false],
+  ['projects_query', 'Read-only project list, search or summary. Provider capability limits still apply.',
+    { provider, action: { enum: ['list', 'search', 'read'] }, input: normalizedInputSchema() }, ['provider', 'action', 'input'], true],
   ['operations_get', 'Read a durable dispatch receipt; inspect the native session to establish execution completion.', { operationId: string }, ['operationId'], true],
   ['operations_list', 'Page this caller’s durable operation journal.', { after: string, limit }, [], true],
   ['operations_cancel', 'Cancel only work not dispatched. Stopping an agent requires its native session stop operation.', { operationId: string }, ['operationId'], false],
   ['events_read', 'Replay this caller’s durable journal after an integer cursor. Resource notifications signal that this journal changed.', { after: cursor, limit }, [], true],
+  ['events_catalog', 'List subscribable session event types and exact per-provider source support. Turn end, errors, output blocks and input requests have different meanings.', {}, [], true],
+  ['events_watch', 'Observe one exact native session and write durable journal events. Existing history is not a new event. Watch scopes expire.',
+    { provider, sessionId: string, ttlMs: { type: 'integer', minimum: 1000, maximum: 604800000 } }, ['provider', 'sessionId'], false],
+  ['events_unwatch', 'Stop one exact caller-owned event source watch.', { watchId: string }, ['watchId'], false],
+  ['events_watch_status', 'Read caller-owned watch status, cursor and expiry without restarting it.', { watchId: string }, ['watchId'], true],
+  ['events_follow', 'Subscribe to source events and send bounded peer follow-up notifications to another exact session. Default one notification; native approvals remain authoritative.',
+    { provider, sessionId: string, events: { type: 'array', minItems: 1, maxItems: sessionEventNames.length, items: { enum: sessionEventNames } },
+      notify: { type: 'object', properties: { provider, sessionId: string }, required: ['provider', 'sessionId'], additionalProperties: false },
+      requestId, after: cursor, turnId: string, maxDeliveries: { type: 'integer', minimum: 1, maximum: 100 }, ttlMs: { type: 'integer', minimum: 1000, maximum: 604800000 } },
+    ['provider', 'sessionId', 'events', 'notify', 'requestId'], false],
+  ['events_unfollow', 'Cancel one caller-owned follow-up subscription without stopping the source agent.', { followId: string }, ['followId'], false],
+  ['events_follow_status', 'Read caller-owned follow-up state and its notification dispatch receipt.', { followId: string }, ['followId'], true],
   ['questions_present', 'Present a pending provider question to the human through MCP elicitation. A model-generated answer does not establish human approval.', { questionId: string }, ['questionId'], false],
   ['provider_resources', 'List or read a connected provider’s MCP resources.', { provider, uri: string, cursor: string }, ['provider'], true],
   ['provider_prompts', 'List or render a connected provider’s MCP prompts.', { provider, name: string, arguments: object, cursor: string }, ['provider'], true],
@@ -73,10 +90,18 @@ export function createHubHandler(broker, caller) {
         else if (name === 'provider_tools_list') value = broker.tools(caller, args.provider, args.name, args.cursor, args.limit);
         else if (name === 'provider_call') value = await broker.invoke(caller, args.provider, args.name, args.arguments, args.requestId, context);
         else if (name === 'sessions' || name === 'projects') value = await broker.operate(caller, args.provider, `${name}.${args.action}`, args.input, context);
+        else if (name === 'sessions_query' || name === 'projects_query') value = await broker.operate(caller, args.provider, `${name.replace('_query', '')}.${args.action}`, args.input, context);
         else if (name === 'operations_get') value = broker.store.get(caller, args.operationId);
         else if (name === 'operations_list') value = { operations: broker.store.list(caller, args) };
         else if (name === 'operations_cancel') value = broker.cancel(caller, args.operationId);
         else if (name === 'events_read') value = broker.store.events(caller, args);
+        else if (name === 'events_catalog') value = { events: broker.sessionEvents?.catalog(caller) ?? [] };
+        else if (name === 'events_watch') value = await broker.sessionEvents.watch(caller, args);
+        else if (name === 'events_unwatch') value = await broker.sessionEvents.unwatch(caller, args.watchId);
+        else if (name === 'events_watch_status') value = broker.sessionEvents.status(caller, args.watchId);
+        else if (name === 'events_follow') value = await broker.sessionEvents.follow(caller, args, context);
+        else if (name === 'events_unfollow') value = broker.sessionEvents.unfollow(caller, args.followId);
+        else if (name === 'events_follow_status') value = broker.sessionEvents.followStatus(caller, args.followId);
         else if (name === 'questions_present') {
           const question = broker.store.question(caller, args.questionId);
           const response = ctx.mcpReq.inputResponses?.[question.id];
@@ -118,7 +143,8 @@ export function createHubHandler(broker, caller) {
         const eventParams = z.object({ name: z.string(), arguments: z.record(z.string(), z.unknown()),
           delivery: z.object({ mode: z.literal('webhook'), url: z.string().max(4096), secret: z.string().optional() }),
           cursor: z.union([z.string(), z.null()]).optional(), ttlMs: z.union([z.number(), z.null()]).optional() });
-        server.setRequestHandler('events/list', { params: z.object({ cursor: z.string().optional() }) }, async () => ({ resultType: 'complete', events: [eventDefinition] }));
+        server.setRequestHandler('events/list', { params: z.object({ cursor: z.string().optional() }) }, async () => ({ resultType: 'complete', events: [eventDefinition,
+          ...(broker.sessionEvents?.catalog(caller) ?? []).map(({ providers, ...definition }) => ({ ...definition, _meta: { 'switchboard/providerSupport': providers } }))] }));
         server.setRequestHandler('events/subscribe', { params: eventParams }, params => broker.events.subscribe(caller, params));
         server.setRequestHandler('events/unsubscribe', { params: eventParams }, params => broker.events.unsubscribe(caller, params));
       }
@@ -130,9 +156,11 @@ export function createHubHandler(broker, caller) {
     server.setRequestHandler('resources/list', async () => ({ resources: [
       { uri: 'switchboard://agents', name: 'Connected agents', mimeType: 'application/json' },
       { uri: 'switchboard://events', name: 'Durable event journal', mimeType: 'application/json' },
+      { uri: 'switchboard://event-catalog', name: 'Session event catalog and provider support', mimeType: 'application/json' },
     ] }));
     server.setRequestHandler('resources/read', async ({ params: { uri } }) => {
       const value = uri === 'switchboard://agents' ? broker.agents(caller)
+        : uri === 'switchboard://event-catalog' ? broker.sessionEvents?.catalog(caller) ?? []
         : uri === 'switchboard://events' ? broker.store.events(caller)
         : uri.startsWith('switchboard://operations/') ? broker.store.get(caller, uri.slice('switchboard://operations/'.length))
         : (() => { throw fault('not_found', 'Resource not found.'); })();
@@ -151,7 +179,8 @@ export function createHubHandler(broker, caller) {
   const changed = ({ principal, id }) => {
     if (principal !== caller) return;
     handler.notify.resourceUpdated('switchboard://events');
-    handler.notify.resourceUpdated(`switchboard://operations/${id}`);
+    if (broker.store.db.prepare('SELECT 1 FROM operations WHERE id=? AND principal=?').get(id, caller))
+      handler.notify.resourceUpdated(`switchboard://operations/${id}`);
   };
   broker.store.on('change', changed);
   const close = handler.close;
