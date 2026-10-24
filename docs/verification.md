@@ -7,7 +7,7 @@ It omits private task names, transcript content, process IDs, and session IDs.
 
 The running Mac broker connects Codex desktop, Claude Code in Desktop, Fabric
 Tutti, and Maestro MCP 0.5.1. Dedicated fixtures isolate all live mutations.
-The local automated suite passes 138 tests, including persistence, caller
+The local automated suite passes 139 tests, including persistence, caller
 isolation, crash recovery, task and elicitation contracts, webhook signing,
 native event normalization, source replacement, cancellation and replay.
 
@@ -32,6 +32,9 @@ Additional live evidence establishes the following:
   A notification to Maestro is accepted and appears in its native transcript.
   A notification from a Codex fixture with a different permission mode is held
   by Claude's native peer policy. The policy remains in force.
+- A direct prompt in the owned Claude fixture produces the expected reply,
+  a completed text-block event and the native stop-hook turn-end event. This
+  establishes event observation separately from peer-message permission checks.
 - Maestro's native metadata watch produces state, block and explicit terminal
   turn events without copying transcript bodies into the hub journal.
 - A public HTTPS callback verifies the signed MCP Events challenge and receives
@@ -50,11 +53,19 @@ Additional live evidence establishes the following:
   update, archive, restore, deletion preview and deletion. Session start, steer,
   stop and resume calls are also exercised. Native receipts and terminal state
   evidence remain distinct; a stop receipt alone does not establish termination.
+- Disposable Fabric fixtures exercise project and session creation, brief update,
+  session archive and restore, guarded steering and stop, and same-thread
+  resume. The stopped native turn becomes `cancelled` with an idle runtime;
+  the resumed turn completes with the expected acknowledgment.
+- A dedicated Codex fixture exercises guarded interruption and subsequent
+  same-thread messaging. Native history confirms an interrupted turn followed
+  by a completed continuation with the expected acknowledgment. This does not
+  declare a separate Codex `resume` or session-creation adapter capability.
 - The read-only bearer harness passes 41 probes with zero failures or blocked
   probes. It retains 50 unsupported and 320 unrun cells rather than treating
   discovery as full functional acceptance.
 
-Full acceptance remains in progress. The remaining provider lifecycle journeys,
+Full acceptance remains in progress. Remaining provider lifecycle cleanup,
 positive human elicitation, host webhook wakeup and the Fabric release require
 separate evidence. Fabric's native event-wait tool is implemented and pushed;
 its deployment remains subject to the full gateway release gate.
