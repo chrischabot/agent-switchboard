@@ -182,3 +182,16 @@ test('Maestro ongoing completion-check summaries do not end a turn; exact termin
   const failed = structuredClone(base); failed.payload.metadata.turnSummary.state = 'error';
   assert.ok(normalizeSessionEvent('maestro', failed, '3').some(e => e.name === 'session.error' && e.scope === 'turn'));
 });
+
+test('native Codex PascalCase reasoning items stay outside visible-block subscriptions', () => {
+  for (const type of ['Reasoning', 'reasoning', 'EncryptedReasoning', 'encryptedReasoning'])
+    assert.deepEqual(normalizeSessionEvent('codex', { type: 'event_msg', payload: {
+      type: 'item_completed', turn_id: 'native-turn', item: { id: 'private-item', type },
+    } }, '1'), []);
+  const failed = normalizeSessionEvent('codex', { type: 'event_msg', payload: {
+    type: 'item_completed', turn_id: 'native-turn', item: { id: 'command', type: 'CommandExecution', status: 'Failed' },
+  } }, '2');
+  assert.equal(failed[0].name, 'session.block.completed');
+  assert.equal(failed[1].name, 'session.error'); assert.equal(failed[1].scope, 'block');
+  assert.equal(failed.some(e => e.name === 'session.turn.ended'), false);
+});

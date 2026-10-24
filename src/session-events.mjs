@@ -36,9 +36,9 @@ export function normalizeSessionEvent(provider, raw, sourceId, state = {}) {
     else if (p.type === 'task_complete') emit('session.turn.ended', { turnId, scope: 'turn', outcome: 'ended' });
     else if (p.type === 'turn_aborted') emit('session.turn.ended', { turnId, scope: 'turn', outcome: 'cancelled' });
     else if (p.type === 'error') emit('session.error', { turnId, scope: 'turn' });
-    else if (p.type === 'item_completed' && p.item && !['reasoning', 'encryptedReasoning'].includes(p.item.type)) {
+    else if (p.type === 'item_completed' && p.item && !/reasoning/i.test(String(p.item.type ?? ''))) {
       emit('session.block.completed', { turnId, scope: 'block', blockId: p.item.id, blockType: p.item.type });
-      if (p.item.status === 'failed' || p.item.status === 'error') emit('session.error', { turnId, scope: 'block', blockId: p.item.id });
+      if (['failed', 'error'].includes(String(p.item.status ?? '').toLowerCase())) emit('session.error', { turnId, scope: 'block', blockId: p.item.id });
     }
   } else if (provider === 'claude') {
     if (raw.isSidechain) return out;
