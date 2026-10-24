@@ -3,10 +3,14 @@
 // token file. Protocol messages and streamed notifications retain their IDs.
 import readline from 'node:readline';
 import { readFile } from 'node:fs/promises';
+import { PassThrough } from 'node:stream';
+import { serveStdio, StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { legacyProxyFactory } from '../src/legacy-stdio-proxy.mjs';
 
 const endpoint = process.env.SWITCHBOARD_URL ?? 'http://127.0.0.1:8796/mcp';
 const token = (await readFile(process.env.SWITCHBOARD_TOKEN_FILE, 'utf8')).trim();
 const pending = new Map();
+let era, legacyInput, legacyHandle;
 const write = item => process.stdout.write(JSON.stringify(item) + '\n');
 async function forward(item) {
   if (item.method === 'notifications/cancelled') {
@@ -51,7 +55,26 @@ async function forward(item) {
 const input = readline.createInterface({ input: process.stdin });
 input.on('line', line => {
   if (Buffer.byteLength(line) > 1024 * 1024) { input.close(); return; }
-  try { void forward(JSON.parse(line)); }
+  try {
+    const item = JSON.parse(line);
+    if (!era) {
+      // An initialize opening establishes legacy connection state. Modern
+      // per-request clients, and existing claim-less diagnostic calls, retain
+      // the transparent forwarding path and their exact wire identities.
+      era = item.method === 'initialize' ? 'legacy' : 'modern';
+      if (era === 'legacy') {
+        legacyInput = new PassThrough();
+        legacyHandle = serveStdio(legacyProxyFactory(endpoint, token), {
+          transport: new StdioServerTransport(legacyInput, process.stdout), maxSubscriptions: 32,
+        });
+      }
+    }
+    if (era === 'legacy') legacyInput.write(line + '\n');
+    else void forward(item);
+  }
   catch { write({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Invalid JSON.' } }); }
 });
-input.on('close', () => { for (const controller of pending.values()) controller.abort(); });
+input.on('close', () => {
+  for (const controller of pending.values()) controller.abort();
+  legacyInput?.end(); void legacyHandle?.close();
+});

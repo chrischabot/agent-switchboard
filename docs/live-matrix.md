@@ -71,6 +71,26 @@ even when the outer dispatch succeeded. A later successful receipt read cannot
 erase a native rejection already observed during the same run. Raw error text
 is still excluded from the report.
 
+## Signed public webhook proof
+
+`test/live/webhook-proof.mjs` runs an explicit live receiver test. Configure an
+owned public HTTPS path to forward to its loopback port before running it:
+
+```sh
+SWITCHBOARD_TEST_CALLBACK_BASE=https://callback.example/events-test \
+SWITCHBOARD_TEST_CALLBACK_PORT=8797 \
+  node test/live/webhook-proof.mjs UNIQUE_STABLE_RUN_KEY
+```
+
+The receiver checks the signature, timestamp and event identity, echoes the
+signed challenge, and observes a rename of the exact recorded Maestro test
+fixture. It starts no inference. The report records receipt evidence without
+credentials or transcript bodies. The script unsubscribes and closes its
+receiver on exit. The operator owns temporary ingress setup and must restore
+that configuration after the test. Never use another application's default
+tunnel configuration. A public delivery proof does not establish client model
+wakeup.
+
 ## Fixture registry
 
 The existing private `evidence/live/fixtures.json` contains the dedicated Codex
