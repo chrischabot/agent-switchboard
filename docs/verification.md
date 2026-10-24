@@ -71,13 +71,14 @@ Additional live evidence establishes the following:
   error; the same turn later ends normally. Incoming user messages and reasoning
   items are excluded from output-block subscriptions.
 - The read-only bearer harness passes 41 probes with zero failures or blocked
-  probes. It retains 50 unsupported and 320 unrun cells rather than treating
+  probes. It retains 47 unsupported and 323 unrun cells rather than treating
   discovery as full functional acceptance.
 
-Full acceptance remains in progress. Remaining provider lifecycle cleanup,
-positive human elicitation, host webhook wakeup and the Fabric release require
-separate evidence. Fabric's native event-wait tool is implemented and pushed;
-its deployment remains subject to the full gateway release gate.
+Full acceptance remains in progress. Fabric's native Tasks and event-wait
+journeys, the four-agent notification chain, positive human elicitation and host
+webhook wakeup require separate evidence. Fabric's native event-wait tool is
+implemented and pushed; its deployment remains subject to the gateway release
+gate and release-campaign coordination.
 
 The full dry run passes 2,000 gateway and 1,148 toolkit test files, both
 typechecks and the required lane benchmark. An apply run is terminated during
