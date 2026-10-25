@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, realpath } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -13,12 +13,18 @@ const label = 'ai.chabot.agent-switchboard';
 const directory = path.join(os.homedir(), 'Library/LaunchAgents');
 const filename = path.join(directory, `${label}.plist`);
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]);
+// Homebrew removes versioned Cellar paths on upgrade. Retain its stable link
+// only when it resolves to this exact executing Node installation.
+let nodePath = process.execPath;
+for (const candidate of ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
+  try { if (await realpath(candidate) === process.execPath) { nodePath = candidate; break; } } catch {}
+}
 await mkdir(directory, { recursive: true }); await mkdir(config.stateDir, { recursive: true, mode: 0o700 });
 await writeFile(filename, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${label}</string>
-<key>ProgramArguments</key><array><string>${escape(process.execPath)}</string><string>${escape(path.join(root, 'bin/hub.mjs'))}</string></array>
+<key>ProgramArguments</key><array><string>${escape(nodePath)}</string><string>${escape(path.join(root, 'bin/hub.mjs'))}</string></array>
 <key>WorkingDirectory</key><string>${escape(root)}</string>
 <key>EnvironmentVariables</key><dict><key>SWITCHBOARD_CONFIG</key><string>${escape(configPath)}</string></dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer>
@@ -28,6 +34,6 @@ await writeFile(filename, `<?xml version="1.0" encoding="UTF-8"?>
 const domain = `gui/${process.getuid()}`;
 let installed = false;
 try { execFileSync('launchctl', ['print', `${domain}/${label}`], { stdio: 'ignore' }); installed = true; } catch {}
-if (installed) throw new Error(`LaunchAgent already installed. Its definition is updated; restart explicitly with launchctl kickstart -k ${domain}/${label} after checking active operations.`);
+if (installed) throw new Error(`LaunchAgent already installed. Its plist is updated. After checking active operations, unload with launchctl bootout ${domain}/${label}, then reload with launchctl bootstrap ${domain} ${filename}. A kickstart alone does not reload changed ProgramArguments.`);
 execFileSync('launchctl', ['bootstrap', domain, filename], { stdio: 'inherit' });
 process.stdout.write(`Installed ${label}; config ${configPath}; endpoint http://127.0.0.1:${config.port}/mcp\n`);

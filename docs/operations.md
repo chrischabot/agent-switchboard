@@ -10,6 +10,8 @@ WAL/SHM files private to the owning macOS account.
 `npm run hub` starts in the foreground. `npm run install:service` installs the
 LaunchAgent `ai.chabot.agent-switchboard`. The installer updates an existing
 plist but refuses to restart an already installed service implicitly.
+It uses the stable Homebrew Node symlink when that link resolves to the running
+Node executable. A versioned Cellar path can disappear during an upgrade.
 
 Before a restart inspect the operation journal for every configured caller.
 `operations_list` is scoped to its bearer principal. For a local administrative
@@ -34,6 +36,10 @@ This restarts only the broker. It does not restart Codex, Claude, Fabric or
 Maestro. Restart a native Maestro broker only through its own profile-specific
 LaunchAgent, after checking its tasks. Never run two writable brokers against
 one native state directory.
+
+If the plist's executable or arguments changed, unload it with `launchctl
+bootout` and reload the exact plist with `launchctl bootstrap`; `kickstart`
+reuses the already-loaded definition. Check the authenticated endpoint afterward.
 
 Use `node bin/call.mjs` with a JSON tool-call object on standard input for local
 operator checks. `SWITCHBOARD_CALLER` selects another configured caller for a
@@ -75,6 +81,68 @@ bytes, and verifies subscriptions with a signed challenge. Delivery uses bounded
 attempts, expiry, 410/413 retirement and overlapping key rotation. A 2xx response
 records webhook receipt; agent wakeup must be verified in the client separately.
 
+## Receiving webhooks for local agents
+
+Local Codex does not expose the Work Cloud webhook callback described in the
+[OpenAI MCP Events integration](https://developers.openai.com/plugins/build/mcp-events).
+Switchboard supplies `/webhooks/<route-id>` for an explicitly configured local
+route. This endpoint authenticates the signed raw body, while `/mcp` and
+`/health` continue to require their bearer tokens. The tunnel remains unchanged.
+
+The private configuration's optional `webhookReceivers` array contains:
+
+```json
+{
+  "id": "owned-route-unique-id",
+  "principal": "operator",
+  "secretFile": "/absolute/private/path/signing.secret",
+  "subscriptionId": "exact-upstream-subscription-id",
+  "event": "session.turn.ended",
+  "filter": { "provider": "fabric", "sessionId": "exact-source-id" },
+  "notify": { "provider": "codex", "sessionId": "exact-destination-id" },
+  "expiresAt": 1793000000000,
+  "maxDeliveries": 1
+}
+```
+
+Set a future expiry in Unix milliseconds and a delivery bound of 1–100. The
+secret file contains a `whsec_` key and must be private. For a Switchboard
+subscription, its identity is `fingerprint([principal, callbackUrl, event,
+subscriptionArguments])` from `src/store.mjs`. Configure the receiver before
+calling `events/subscribe`, so it can answer the signed verification challenge.
+Source filters are checked against every event. Session events require an exact
+source session; operation events can also filter `operationId` and `status`.
+
+Every accepted event is persisted before the HTTP acknowledgment. The receiver
+delivers only to the configured destination, preserving native permissions and
+the peer-data boundary. Event IDs deduplicate across process restarts, and a
+stable native dispatch identity closes the crash window between recording a
+dispatch and recording its inbox association. Reusing an ID with changed data
+returns 409; stale signatures, wrong subscription IDs and unexpected sources
+are rejected. An uncertain native dispatch is never silently sent again.
+
+Inspect `webhook_inbox` for `pending`, `dispatched` or `failed`, and inspect the
+referenced operation and native transcript for actual completion. `dispatched`
+does not assert model success. Routes expire and delivery bounds persist across
+restarts. Changing a route's settings requires a new ID. Removing its config
+disables receipt and recovery without deleting evidence.
+
+## Human elicitation
+
+Codex may immediately return `decline` under `approval_policy = "never"`.
+Full-access standard forms require additional frontend support; do not treat
+an immediate client decline as a human decision. On request permissions were
+observed to display the actual native form in the October 25 live check.
+Only the user changes their chat permission policy or submits the form.
+
+Maestro must be in **Collaborative** interaction mode to create an ask-user
+question. `full_auto=false` alone does not establish that mode; a fixture message
+can explicitly select the advertised `collaborative` mode. Questions retain
+their exact native ask ID and revision. If presentation times out, the durable
+operation remains `waiting_input`; inspect it before presenting the same pending
+question again. Do not invent a response or confuse an old stopped card with a
+new live ask.
+
 ## Acceptance and recovery
 
 Run `npm test` for controlled protocol, authorization, crash/recovery and adapter
@@ -89,5 +157,7 @@ the original failure so the record remains auditable.
 
 Known limits include version-sensitive desktop IPC, partial desktop inventories,
 Claude's short immediate-receipt window, no native desktop project CRUD, no
-cross-process native Maestro subscription reconnect, and no live-qualified host
-webhook wakeup yet. Capabilities and live reports must keep these distinctions.
+cross-process native Maestro subscription reconnect, and native human-form
+acceptance pending an actual human submission. Local webhook-to-Codex wakeup is
+live-qualified; this does not claim built-in Work Cloud ingress in local Codex.
+Capabilities and live reports must keep these distinctions.

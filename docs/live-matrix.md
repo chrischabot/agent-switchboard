@@ -76,6 +76,21 @@ is still excluded from the report.
 
 ## Signed public webhook proof
 
+For actual model wakeup, configure a bounded receiver as described in
+[operations.md](operations.md#receiving-webhooks-for-local-agents). Prepare the
+exact owned Codex fixture with the expected acknowledgment, subscribe to the
+exact owned Fabric fixture's `session.turn.ended`, and send the source fixture
+one harmless prompt. Preserve the subscription, route and source-dispatch
+metadata in `evidence/live/<run-id>.json`. The fixture registry must identify
+both sessions as `Switchboard dedicated live E2E`.
+
+`node test/live/webhook-wakeup-proof.mjs <run-id>` verifies native completion
+and replays only the identical signed event; it does not create another model
+prompt. The proof is written exclusively, so preserve an earlier proof before
+re-running it. The October 25 run verifies an actual native Codex assistant
+reply and duplicate delivery without redispatch. Unsubscribe and unwatch after
+collecting evidence; keep the receiver's bounded inbox as an audit record.
+
 `test/live/webhook-proof.mjs` runs an explicit live receiver test. Configure an
 owned public HTTPS path to forward to its loopback port before running it:
 

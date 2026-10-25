@@ -19,6 +19,9 @@ export async function serveHub(broker, { port = 8796, host = '127.0.0.1' } = {})
     if (req.headers.origin) return reject(403, 'Browser origins are not enabled.');
     if (!['127.0.0.1', 'localhost', '[::1]'].includes((req.headers.host ?? '').replace(/:\d+$/, '')))
       return reject(403, 'Invalid Host.');
+    // Webhooks authenticate their signed raw body, not the MCP bearer token.
+    if (req.url?.startsWith('/webhooks/') && broker.webhookReceiver)
+      return broker.webhookReceiver.handle(req, res);
     const auth = req.headers.authorization?.startsWith('Bearer ') ? Buffer.from(req.headers.authorization.slice(7)) : Buffer.alloc(0);
     let caller;
     for (const [id, client] of clients) if (auth.length === client.token.length && timingSafeEqual(auth, client.token)) caller = id;
