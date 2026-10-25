@@ -51,7 +51,7 @@ including Claude's hold on messages from a sender with broader permissions.
 | Error and completed-block notifications | Live pass; one delivery each and native Fabric completion |
 | Public signed MCP Events callback | Live pass; challenge and three distinct signed events |
 | Human elicitation decline/cancel preservation | Live client decline; automated accept/cancel contract tests pass |
-| Positive human answer through this Codex host | Native form visibly renders with On request permissions; human submission remains pending after two presentation timeouts |
+| Positive human answer through this Codex host | Live pass: human submitted the native Codex MCP form; Maestro persisted the answer, completed the question flow, and acknowledged it in a completed assistant turn |
 | Signed webhook causing a host model to run | Live pass: Fabric turn end → public signed HTTPS webhook → durable receiver → native Codex completed turn and matching event ID; replay reuses the original operation |
 
 The native escape hatch exposes the providers' larger catalogs, including

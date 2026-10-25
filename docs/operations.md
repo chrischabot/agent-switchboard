@@ -157,7 +157,7 @@ the original failure so the record remains auditable.
 
 Known limits include version-sensitive desktop IPC, partial desktop inventories,
 Claude's short immediate-receipt window, no native desktop project CRUD, no
-cross-process native Maestro subscription reconnect, and native human-form
-acceptance pending an actual human submission. Local webhook-to-Codex wakeup is
-live-qualified; this does not claim built-in Work Cloud ingress in local Codex.
+cross-process native Maestro subscription reconnect. Native Codex human-form
+acceptance through Maestro and local webhook-to-Codex wakeup are live-qualified;
+this does not claim built-in Work Cloud ingress in local Codex.
 Capabilities and live reports must keep these distinctions.

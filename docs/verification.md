@@ -97,7 +97,7 @@ Additional live evidence establishes the following:
 Fabric deployment and the four-agent notification chain are verified.
 The October 25 follow-up also verifies a signed public webhook causing an
 existing local Codex session to run, as described below. Positive human
-elicitation remains pending a human submission. Unsupported desktop lifecycle
+elicitation is also verified through a submitted native Codex MCP form. Unsupported desktop lifecycle
 methods remain explicitly unsupported.
 
 The normalized lifecycle coverage is summarized in [the acceptance matrix](acceptance-matrix.md).
@@ -131,8 +131,13 @@ is available. After the owner switches the chat to Default permissions, the
 same MCP relay displays a native Codex form with an editable answer field and
 Accept/Deny controls, observed directly in the app accessibility tree. Two
 presentations time out without a submitted response; the operation stays
-`waiting_input` and the native question stays open. A positive human answer is
-not claimed from a rendered form.
+`waiting_input` and the native question stays open. At 09:27 UTC the human
+submits the re-presented native form. Switchboard receives `accept` with the
+answer, Maestro persists it on the exact question card with
+`completedQuestionFlow: true`, and its assistant turn reaches `complete` with
+the expected answer acknowledgment. The persisted answer card and completed
+assistant output establish the full round trip, beyond the send receipt.
+Private proof is saved as `evidence/live/elicitation-20261025-02-proof.json`.
 
 Maestro's fixture must explicitly select its advertised Collaborative mode to
 create the question. `full_auto=false` does not establish interaction mode:
