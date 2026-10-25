@@ -1,5 +1,8 @@
 # Live acceptance matrix
 
+See [observed acceptance](acceptance-matrix.md) for the supported lifecycle
+surface, real agent routes, protocol results and remaining host limitations.
+
 Run the harness from the Switchboard checkout:
 
 ```bash
@@ -192,9 +195,34 @@ than a second logical mutation. A pending or unknown receipt remains blocked.
 
 ## Evidence and privacy
 
-Reports contain timestamps, durations, counts, runtime metadata, stable request
+The four-agent chain has a separate read-only verifier:
+
+```bash
+node test/live/chain-proof.mjs chain-RUN_KEY
+```
+
+Before executing the chain, prepare exact owned fixtures and save the caller's
+starting journal cursor. Arm one-shot follows from Claude to Maestro, Maestro
+to Fabric, and Fabric to Codex. Start Claude through the authorized Codex
+fixture's native MCP connection so its real sender permission context is used.
+Do not change recipient permissions to make a test pass.
+
+The private `chain-RUN_KEY.json` records `startedAt`, `after`, the fixture
+registry, expected acknowledgment strings keyed by provider, and the three
+follow identities. Capture the journal as `chain-RUN_KEY-events.json`, bounded
+native reads as `chain-RUN_KEY-{claude,codex,fabric}-read.json`, and Maestro's
+native conversation artifact as `chain-RUN_KEY-maestro-native.json`.
+The verifier reads current follow receipts, checks recorded terminal ordering
+and native assistant acknowledgments, and writes a metadata-only proof with an
+evidence digest. It never starts work or retries delivery to fill missing proof.
+Unwatch the test sources after capture; completed follow identities remain for
+idempotency and audit.
+
+Read-only matrix reports contain timestamps, durations, counts, runtime metadata, stable request
 IDs, receipt IDs and SHA-256 hashes. Raw transcripts, prompts, provider results,
-credentials and raw error messages are not persisted. Each input file is limited
+credentials and raw error messages are not persisted in those reports. The
+separate, explicitly captured chain artifacts above remain private and ignored.
+Each matrix input file is limited
 to 1 MiB, each report to 2 MiB, and plans to 24 operations. Reports are created
 with mode `0600` inside directories created with mode `0700`.
 

@@ -3,11 +3,11 @@
 This record separates historical live acceptance from local automated tests.
 It omits private task names, transcript content, process IDs, and session IDs.
 
-## Current acceptance: October 24, 2026
+## Current acceptance: October 25, 2026
 
 The running Mac broker connects Codex desktop, Claude Code in Desktop, Fabric
-Tutti, and Maestro MCP 0.5.1. Dedicated fixtures isolate all live mutations.
-The local automated suite passes 140 tests, including persistence, caller
+Tutti, and Maestro MCP 0.5.2. Dedicated fixtures isolate all live mutations.
+The local automated suite passes 142 tests, including persistence, caller
 isolation, crash recovery, task and elicitation contracts, webhook signing,
 native event normalization, source replacement, cancellation and replay.
 
@@ -26,6 +26,16 @@ tool records support the cells; caller-token harness requests alone do not.
 
 Additional live evidence establishes the following:
 
+- The coordinated Fabric release train deploys the protocol changes. Gateway
+  `051e64b7` includes reviewed Switchboard commit `29e561b4`; Cadence is
+  `0.2.624@a4c6c4a1`. Native Tasks, bounded thread listing, event waits,
+  task-resource reads and completed-task cancellation pass against that runtime.
+- A real Codex prompt reaches Claude, whose native turn end triggers Maestro,
+  whose native turn end triggers Fabric, whose native turn end triggers Codex.
+  All three automatic notifications dispatch once. Four native terminal
+  boundaries and four exact assistant acknowledgments establish execution.
+  The read-only chain verifier rejects uncertain receipts, unrelated sessions,
+  prior-turn evidence, and tokens appearing only in user prompts.
 - A new Codex fixture discovers and calls the event catalog, then registers an
   exact one-shot turn-end follow-up through MCP.
 - The broker observes native Codex turn completion and dispatches one follow-up.
@@ -48,7 +58,10 @@ Additional live evidence establishes the following:
   read until that read actually completes.
 - A fresh Codex connection relays a real Maestro elicitation. The client returns
   `decline`; Maestro receives that disposition and leaves its native question
-  unanswered. The positive human-acceptance path remains unverified in the app.
+  unanswered. A repeat against Maestro's current single-text question flow
+  exposes and fixes its native-form mapping. The live form then reaches Codex,
+  which again returns `decline` immediately. This does not establish a human
+  click or a positive human-acceptance path in the app.
 - Disposable Maestro session and project fixtures exercise creation, rename or
   update, archive, restore, deletion preview and deletion. Session start, steer,
   stop and resume calls are also exercised. Native receipts and terminal state
@@ -70,22 +83,29 @@ Additional live evidence establishes the following:
   expected acknowledgment. A deliberate failed command produces a block-scoped
   error; the same turn later ends normally. Incoming user messages and reasoning
   items are excluded from output-block subscriptions.
-- The read-only bearer harness passes 41 probes with zero failures or blocked
-  probes. It retains 47 unsupported and 323 unrun cells rather than treating
+- Separate one-shot subscriptions deliver a real Codex block error and a
+  completed output block to Fabric. Both dispatch once; Fabric's corresponding
+  native turns complete and acknowledge the event type. The error does not
+  falsely end the Codex turn. Test watches are stopped after evidence capture.
+- Maestro's native status is `stopped` after cleanup of the elicitation fixture.
+  The client disposition and unanswered question are retained in the evidence;
+  no agent supplies a human answer.
+- The read-only bearer harness passes 46 probes with zero failures or blocked
+  probes. It retains 42 unsupported and 325 unrun cells rather than treating
   discovery as full functional acceptance.
 
-Full acceptance remains in progress. Fabric's native Tasks and event-wait
-journeys, the four-agent notification chain, positive human elicitation and host
-webhook wakeup require separate evidence. Fabric's native event-wait tool is
-implemented and pushed; its deployment remains subject to the gateway release
-gate and release-campaign coordination.
+Fabric deployment and the four-agent notification chain are now verified.
+Positive human elicitation remains unverified because this Codex client returns
+decline; a host's signed-webhook-to-model wakeup is also unverified. Native
+desktop IPC supplies the verified local wakeup path. Unsupported desktop
+lifecycle methods remain explicitly unsupported.
 
-The full dry run passes 2,000 gateway and 1,148 toolkit test files, both
-typechecks and the required lane benchmark. An apply run is terminated during
-its toolkit suite by the separate release campaign. A subsequent local retry is
-also stopped before runtime changes to avoid competing deployments. The Fabric
-release remains pending coordination with that campaign; these gates do not
-establish deployment.
+The normalized lifecycle coverage is summarized in [the acceptance matrix](acceptance-matrix.md).
+The bearer harness deliberately keeps mutation and originating-agent cells
+unrun in its read-only report; separate lifecycle receipts, native transcripts,
+protocol proofs and chain evidence establish those journeys. The native-tool
+catalog includes unrelated provider administration tools that have not all
+been exercised. Discovery is not a claim of exhaustive native-provider testing.
 
 ## Live desktop acceptance
 
