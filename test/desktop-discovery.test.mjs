@@ -52,6 +52,7 @@ test('reachable Codex stays ready when recent saved threads have no desktop owne
     INSERT INTO threads VALUES('00000000-0000-4000-8000-000000000001','recent CLI task','/tmp','cli',1,'','','','',0);`);
   db.close();
   const socketPath = path.join(directory, 'ipc/ipc.sock');
+  let ownerRequests = 0;
   const server = net.createServer(socket => {
     let data = Buffer.alloc(0);
     socket.on('data', bytes => {
@@ -59,6 +60,7 @@ test('reachable Codex stays ready when recent saved threads have no desktop owne
       while (data.length >= 4 && data.length >= data.readUInt32LE(0) + 4) {
         const n = data.readUInt32LE(0), request = JSON.parse(data.subarray(4, n + 4));
         data = data.subarray(n + 4);
+        if (request.method === 'thread-owner-discovery') ownerRequests++;
         socket.write(frame({ type: 'response', requestId: request.requestId,
           ...(request.method === 'initialize' ? { resultType: 'success', result: { clientId: 'test' } }
             : { resultType: 'error', error: 'no-client-found' }) }));
@@ -72,6 +74,14 @@ test('reachable Codex stays ready when recent saved threads have no desktop owne
     assert.deepEqual((await provider.connect()).sessions, []);
     assert.equal(provider.descriptor.availability, 'ready');
     assert.deepEqual(provider.descriptor.discovery, { examined: 1, found: 0, complete: false });
+    const discoveryObservedAt = provider.descriptor.discoveryObservedAt;
+    const broker = new Broker(null, new Map([['codex', provider]]), { clients: { test: { providers: ['codex'] } } });
+    const [result] = await broker.agents('test');
+    assert.equal(result.availability, 'ready');
+    assert.equal(result.freshness, 'fresh');
+    assert.equal(result.observation, 'desktop_ipc');
+    assert.equal(result.discoveryObservedAt, discoveryObservedAt);
+    assert.equal(ownerRequests, 1, 'liveness must not repeat slow session-owner discovery');
   } finally {
     roots.codex = previous;
     await new Promise(resolve => server.close(resolve));

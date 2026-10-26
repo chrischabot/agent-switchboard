@@ -3,7 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { readFile } from 'node:fs/promises';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { call as desktopCall, desktopTools } from '../server.mjs';
-import { codexStop, desktopEventFile } from '../switchboard.mjs';
+import { CodexIPC, codexStop, desktopEventFile } from '../switchboard.mjs';
 import { watchJsonLines } from './local-event-source.mjs';
 import { normalizeSessionEvent } from './session-events.mjs';
 import { fault } from './store.mjs';
@@ -43,7 +43,18 @@ export class DesktopProvider {
   async connect() {
     return this.call(`${this.id}_list`, this.id === 'codex' ? { limit: 10 } : {});
   }
-  async refresh() { return this.connect(); }
+  async refresh() {
+    if (this.id !== 'codex') return this.connect();
+    // Owner discovery can wait for every recent thread's desktop window. The
+    // registry needs transport liveness; sessions_query does the owner scan.
+    const ipc = new CodexIPC();
+    try {
+      await ipc.connect();
+      this.descriptor.availability = 'ready';
+      this.descriptor.observedAt = new Date().toISOString();
+      this.descriptor.observation = 'desktop_ipc';
+    } finally { ipc.close(); }
+  }
   async call(name, args, context) {
     const result = await (name === 'codex_stop' ? codexStop(args) : desktopCall(name, args, context));
     if (name === `${this.id}_list`) {
@@ -52,6 +63,8 @@ export class DesktopProvider {
       this.descriptor.availability = this.id === 'codex' || result.sessions.length ? 'ready' : 'offline';
       this.descriptor.discovery = { examined: result.examined ?? result.sessions.length, found: result.sessions.length, complete: this.id !== 'codex' };
       this.descriptor.observedAt = new Date().toISOString();
+      this.descriptor.discoveryObservedAt = this.descriptor.observedAt;
+      this.descriptor.observation = 'session_discovery';
       this.descriptor.runtimeVersions = [...new Set(result.sessions.map(x => x.version).filter(Boolean))];
     }
     return result;
@@ -86,9 +99,10 @@ export class McpProvider {
   async refresh() {
     if (this.connecting || !this.client) return this.connect();
     // Do not reopen healthy transports: subscriptions and provider calls may
-    // be using them. A ping checks this connection without replaying any work.
+    // be using them. Modern MCP replaces ping with server/discover.
     const client = this.client;
-    await client.ping({ timeout: 4000 });
+    if (client.getDiscoverResult?.()) await client.discover({ timeout: 4000 });
+    else await client.ping({ timeout: 4000 });
     if (this.client !== client) throw fault('connection_changed', 'Provider connection changed during discovery.');
     this.descriptor.availability = 'ready';
     this.descriptor.observedAt = new Date().toISOString();

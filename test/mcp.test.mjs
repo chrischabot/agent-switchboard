@@ -9,6 +9,7 @@ import { CreateTaskResultV2Schema, GetTaskResultV2Schema } from '@modelcontextpr
 import { Store } from '../src/store.mjs';
 import { Broker } from '../src/broker.mjs';
 import { serveHub } from '../src/http.mjs';
+import { McpProvider } from '../src/providers.mjs';
 
 const revision = '2026-07-28';
 const taskCapabilities = { extensions: { 'io.modelcontextprotocol/tasks': {} } };
@@ -144,7 +145,8 @@ async function fixture(t, { holdWrites = false } = {}) {
   const health = async () => (await fetch(`http://127.0.0.1:${service.port}/health`, {
     headers: { authorization: `Bearer ${tokens.alice}` },
   })).json();
-  return { store, broker, calls, release: release.resolve, rpc, call, subscribe, wrongHost, health };
+  return { store, broker, calls, release: release.resolve, rpc, call, subscribe, wrongHost, health,
+    providerEndpoint: { url: `http://127.0.0.1:${service.port}/mcp`, tokenFile: clients.alice.tokenFile } };
 }
 
 const toolResult = response => {
@@ -177,6 +179,25 @@ test('agent tool, resource and authenticated health all await fresh discovery', 
     assert.equal(agents[0].discovery.found, index + 1);
     assert.equal(agents[0].freshness, 'fresh');
   }
+});
+
+test('native freshness uses modern server discovery over real MCP without reconnecting', async t => {
+  const f = await fixture(t);
+  const provider = new McpProvider('fixture', f.providerEndpoint);
+  try {
+    await provider.connect();
+    const client = provider.client;
+    assert.ok(client.getDiscoverResult());
+    const broker = new Broker(null, new Map([['fixture', provider]]), {
+      clients: { test: { providers: ['fixture'] } },
+    });
+    for (let i = 0; i < 2; i++) {
+      const [result] = await broker.agents('test');
+      assert.equal(result.availability, 'ready');
+      assert.equal(result.freshness, 'fresh');
+      assert.equal(provider.client, client);
+    }
+  } finally { await provider.close(); }
 });
 
 test('modern discovery advertises its version and requires consistent standard headers', async t => {

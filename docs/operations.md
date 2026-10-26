@@ -66,8 +66,9 @@ broker availability and observed provider state, not end-to-end agent execution.
 ## Agent discovery freshness
 
 `agents_list`, `switchboard://agents` and authenticated `/health` refresh the
-caller's granted providers concurrently on every request. Desktop adapters scan
-their native session registry; connected MCP adapters ping without closing live
+caller's granted providers concurrently on every request. Claude scans its native
+session registry; Codex checks its desktop IPC connection. Connected MCP adapters
+use `server/discover` for modern MCP or `ping` for legacy MCP without closing live
 transports, and disconnected adapters attempt to reconnect. Concurrent requests
 share a provider's in-flight probe. No background polling is required.
 
@@ -83,10 +84,14 @@ reached its deadline. Successful checks return `freshness: "fresh"`.
 
 Claude `offline` after a fresh scan means no live locally owned Claude Code
 session was found. It does not mean the Claude desktop application is closed.
-Codex discovery remains a bounded recent-session scan; `complete: false` and
+Codex session discovery remains a bounded recent-session scan; `complete: false` and
 `found: 0` do not establish that Codex has no sessions. A native MCP `ready`
 result establishes MCP connectivity, not that every backing agent or lifecycle
 action works. Capability verification remains separately declared or tested.
+`observation` distinguishes `desktop_ipc` liveness from `session_discovery`;
+`discoveryObservedAt` dates the session counts independently. Use `sessions_query`
+to refresh Codex's owner-verified session list; registry health does not wait for
+every recent thread's owner-discovery deadline.
 
 ## Tasks, resources and webhook delivery
 
