@@ -168,6 +168,7 @@ export class Broker {
   constructor(store, providers, config) {
     this.store = store; this.providers = providers; this.config = config;
     this.running = new Map(); this.closing = false;
+    this.discovery = new Map();
   }
   principal(id) {
     const principal = this.config.clients[id];
@@ -181,9 +182,31 @@ export class Broker {
     if (!provider) throw fault('not_found', 'Unknown provider.');
     return provider;
   }
-  agents(caller) {
-    return this.principal(caller).providers.map(id => this.providers.get(id)).filter(Boolean)
-      .map(p => ({ ...p.descriptor, toolCount: p.catalog.length }));
+  async agents(caller) {
+    const providers = this.principal(caller).providers.map(id => this.providers.get(id)).filter(Boolean);
+    return Promise.all(providers.map(async p => {
+      // Share slow discovery across callers. A response deadline must not start
+      // another connection attempt while the previous one is still in flight.
+      let pending = this.discovery.get(p);
+      if (!pending) {
+        pending = Promise.resolve().then(async () => {
+          if (!p.refresh) return 'refresh_unsupported';
+          await p.refresh();
+          return null;
+        }).catch(error => error.code === 'auth_required' || p.descriptor.availability === 'auth_required'
+          ? 'auth_required' : 'refresh_failed');
+        this.discovery.set(p, pending);
+        pending.then(() => { if (this.discovery.get(p) === pending) this.discovery.delete(p); });
+      }
+      let timer;
+      const timeoutMs = Math.min(15000, Math.max(1, this.config.agentRefreshTimeoutMs ?? 5000));
+      const error = await Promise.race([pending, new Promise(resolve => {
+        timer = setTimeout(() => resolve('refresh_timeout'), timeoutMs);
+      })]).finally(() => clearTimeout(timer));
+      return { ...p.descriptor, toolCount: p.catalog.length,
+        checkedAt: new Date().toISOString(), freshness: error ? 'stale' : 'fresh',
+        ...(error ? { availability: error === 'auth_required' ? 'auth_required' : 'unknown', refreshError: error } : {}) };
+    }));
   }
   capabilities(caller, id) {
     const p = this.provider(caller, id);

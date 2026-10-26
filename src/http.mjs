@@ -28,7 +28,7 @@ export async function serveHub(broker, { port = 8796, host = '127.0.0.1' } = {})
     if (!caller) return reject(401, 'A configured client bearer token is required.');
     if (req.url === '/health' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ status: 'ok', version: '0.2.0', agents: broker.agents(caller) }));
+      return res.end(JSON.stringify({ status: 'ok', version: '0.2.0', agents: await broker.agents(caller) }));
     }
     if (req.url !== '/mcp') return reject(404, 'Not found.');
     try { await nodes.get(caller)(req, res); }

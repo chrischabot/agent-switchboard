@@ -63,6 +63,31 @@ access; it does not silently move desktop work to another host.
 Unauthenticated `/health` returns 401. An authenticated response establishes
 broker availability and observed provider state, not end-to-end agent execution.
 
+## Agent discovery freshness
+
+`agents_list`, `switchboard://agents` and authenticated `/health` refresh the
+caller's granted providers concurrently on every request. Desktop adapters scan
+their native session registry; connected MCP adapters ping without closing live
+transports, and disconnected adapters attempt to reconnect. Concurrent requests
+share a provider's in-flight probe. No background polling is required.
+
+Each provider has a five-second response deadline (`agentRefreshTimeoutMs` in
+the private hub config, bounded to 1–15000 milliseconds). A timed-out probe keeps
+running within the adapter's own limits and is shared by subsequent requests;
+the hub does not start overlapping reconnects. Failure or timeout returns
+`freshness: "stale"`, `availability: "unknown"` (or `auth_required` for a known
+authentication failure), and a safe `refreshError` code. Historical catalog and
+discovery fields remain available as old evidence. `observedAt` is the last
+successful observation; `checkedAt` is when this request's check finished or
+reached its deadline. Successful checks return `freshness: "fresh"`.
+
+Claude `offline` after a fresh scan means no live locally owned Claude Code
+session was found. It does not mean the Claude desktop application is closed.
+Codex discovery remains a bounded recent-session scan; `complete: false` and
+`found: 0` do not establish that Codex has no sessions. A native MCP `ready`
+result establishes MCP connectivity, not that every backing agent or lifecycle
+action works. Capability verification remains separately declared or tested.
+
 ## Tasks, resources and webhook delivery
 
 Task state records provider-call completion. A task cancellation acknowledgment

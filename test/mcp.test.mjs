@@ -141,7 +141,10 @@ async function fixture(t, { holdWrites = false } = {}) {
       req.end('{}');
     });
   }
-  return { store, broker, calls, release: release.resolve, rpc, call, subscribe, wrongHost };
+  const health = async () => (await fetch(`http://127.0.0.1:${service.port}/health`, {
+    headers: { authorization: `Bearer ${tokens.alice}` },
+  })).json();
+  return { store, broker, calls, release: release.resolve, rpc, call, subscribe, wrongHost, health };
 }
 
 const toolResult = response => {
@@ -157,6 +160,24 @@ const toolError = (response, code) => {
 const write = (f, requestId, nonce = 'fixture-nonce', options = {}) => f.call('provider_call', {
   provider: 'fixture', name: 'fixture_write', arguments: { nonce }, requestId,
 }, options);
+
+test('agent tool, resource and authenticated health all await fresh discovery', async t => {
+  const f = await fixture(t);
+  const provider = f.broker.providers.get('fixture');
+  let checks = 0;
+  provider.refresh = async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    provider.descriptor.discovery = { found: ++checks };
+  };
+  const tool = toolResult(await f.call('agents_list')).structuredContent.agents;
+  const resource = JSON.parse(toolResult(await f.rpc('resources/read', { uri: 'switchboard://agents' })).contents[0].text);
+  const health = (await f.health()).agents;
+  for (const [index, agents] of [tool, resource, health].entries()) {
+    assert.ok(Array.isArray(agents));
+    assert.equal(agents[0].discovery.found, index + 1);
+    assert.equal(agents[0].freshness, 'fresh');
+  }
+});
 
 test('modern discovery advertises its version and requires consistent standard headers', async t => {
   const f = await fixture(t);

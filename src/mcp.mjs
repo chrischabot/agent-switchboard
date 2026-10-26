@@ -85,7 +85,7 @@ export function createHubHandler(broker, caller) {
       try {
         let value;
         const context = caller === 'codex' ? executorContext(request.params._meta ?? ctx.mcpReq.envelope) : {};
-        if (name === 'agents_list') value = { agents: broker.agents(caller) };
+        if (name === 'agents_list') value = { agents: await broker.agents(caller) };
         else if (name === 'capabilities_get') value = broker.capabilities(caller, args.provider);
         else if (name === 'provider_tools_list') value = broker.tools(caller, args.provider, args.name, args.cursor, args.limit);
         else if (name === 'provider_call') value = await broker.invoke(caller, args.provider, args.name, args.arguments, args.requestId, context);
@@ -159,7 +159,7 @@ export function createHubHandler(broker, caller) {
       { uri: 'switchboard://event-catalog', name: 'Session event catalog and provider support', mimeType: 'application/json' },
     ] }));
     server.setRequestHandler('resources/read', async ({ params: { uri } }) => {
-      const value = uri === 'switchboard://agents' ? broker.agents(caller)
+      const value = uri === 'switchboard://agents' ? await broker.agents(caller)
         : uri === 'switchboard://event-catalog' ? broker.sessionEvents?.catalog(caller) ?? []
         : uri === 'switchboard://events' ? broker.store.events(caller)
         : uri.startsWith('switchboard://operations/') ? broker.store.get(caller, uri.slice('switchboard://operations/'.length))

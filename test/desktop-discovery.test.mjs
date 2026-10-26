@@ -7,6 +7,39 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DesktopProvider } from '../src/providers.mjs';
 import { roots, frame } from '../switchboard.mjs';
+import { execFileSync } from 'node:child_process';
+import { Broker } from '../src/broker.mjs';
+
+test('agents_list discovers Claude sessions started after hub startup and notices their removal', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'switchboard-claude-discovery-'));
+  const previous = roots.claude;
+  roots.claude = directory;
+  try {
+    await fs.mkdir(path.join(directory, 'sessions'));
+    const provider = new DesktopProvider('claude');
+    await provider.connect();
+    assert.equal(provider.descriptor.availability, 'offline');
+    const broker = new Broker(null, new Map([['claude', provider]]), { clients: { test: { providers: ['claude'] } } });
+    const record = path.join(directory, 'sessions', `${process.pid}.json`);
+    await fs.writeFile(record, JSON.stringify({
+      sessionId: '00000000-0000-4000-8000-000000000001', name: 'test session', version: 'test',
+      procStart: execFileSync('/bin/ps', ['-p', String(process.pid), '-o', 'lstart='],
+        { encoding: 'utf8', env: { ...process.env, TZ: 'UTC' } }).trim(),
+    }));
+    const [ready] = await broker.agents('test');
+    assert.equal(ready.availability, 'ready');
+    assert.equal(ready.discovery.found, 1);
+    assert.equal(ready.freshness, 'fresh');
+    await fs.unlink(record);
+    const [offline] = await broker.agents('test');
+    assert.equal(offline.availability, 'offline');
+    assert.equal(offline.discovery.found, 0);
+    assert.equal(offline.freshness, 'fresh');
+  } finally {
+    roots.claude = previous;
+    await fs.rm(directory, { recursive: true });
+  }
+});
 
 test('reachable Codex stays ready when recent saved threads have no desktop owner', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'switchboard-discovery-'));

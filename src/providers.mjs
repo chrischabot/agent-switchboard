@@ -41,13 +41,9 @@ export class DesktopProvider {
         required: ['sessionId', 'expectedTurnId'], additionalProperties: false }, annotations: { readOnlyHint: false } });
   }
   async connect() {
-    const result = await this.call(`${this.id}_list`, this.id === 'codex' ? { limit: 10 } : {});
-    this.descriptor.availability = this.id === 'codex' || result.sessions.length ? 'ready' : 'offline';
-    this.descriptor.discovery = { examined: result.examined ?? result.sessions.length, found: result.sessions.length, complete: this.id !== 'codex' };
-    this.descriptor.observedAt = new Date().toISOString();
-    this.descriptor.runtimeVersions = [...new Set(result.sessions.map(x => x.version).filter(Boolean))];
-    return result;
+    return this.call(`${this.id}_list`, this.id === 'codex' ? { limit: 10 } : {});
   }
+  async refresh() { return this.connect(); }
   async call(name, args, context) {
     const result = await (name === 'codex_stop' ? codexStop(args) : desktopCall(name, args, context));
     if (name === `${this.id}_list`) {
@@ -86,6 +82,17 @@ export class McpProvider {
     if (this.connecting) return this.connecting;
     this.connecting = this.open().finally(() => { this.connecting = null; });
     return this.connecting;
+  }
+  async refresh() {
+    if (this.connecting || !this.client) return this.connect();
+    // Do not reopen healthy transports: subscriptions and provider calls may
+    // be using them. A ping checks this connection without replaying any work.
+    const client = this.client;
+    await client.ping({ timeout: 4000 });
+    if (this.client !== client) throw fault('connection_changed', 'Provider connection changed during discovery.');
+    this.descriptor.availability = 'ready';
+    this.descriptor.observedAt = new Date().toISOString();
+    return this.descriptor;
   }
   async open() {
     await this.client?.close();
