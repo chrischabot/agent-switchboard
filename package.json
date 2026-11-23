@@ -1,0 +1,56 @@
+{
+  "name": "agent-switchboard",
+  "version": "0.2.0",
+  "description": "A durable local MCP broker that connects live Codex desktop, Claude Code and Antigravity sessions on a Mac.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "agent-client-protocol",
+    "acp",
+    "codex",
+    "claude-code",
+    "antigravity",
+    "coding-agents",
+    "multi-agent",
+    "macos"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "Chris Chabot",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrischabot/agent-switchboard.git"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "os": [
+    "darwin"
+  ],
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test switchboard.test.mjs test/*.test.mjs test/live/*.test.mjs",
+    "check": "node bin/check.mjs",
+    "hub": "node bin/hub.mjs",
+    "client": "node bin/client.mjs",
+    "install:service": "node bin/install-service.mjs",
+    "test:live": "node test/live/matrix.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "switchboard.mjs",
+    "mcp-client.mjs",
+    "README.md",
+    "LICENSE",
+    "docs",
+    "src",
+    "bin"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/ext-tasks": "0.2.2",
+    "@modelcontextprotocol/node": "2.1.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "ajv": "8.17.1"
+  }
+}
